@@ -29,7 +29,7 @@
       "source": ".agents/skills/mirador-core-infrastructure",
       "sourceType": "local",
       "skillPath": ".agents/skills/mirador-core-infrastructure/SKILL.md",
-      "computedHash": "aa2b9944ae2034a10a1a7f25ea9cc420ba7111a55d965d7e3a36d4bf0a9775e3"
+      "computedHash": "dce1a83819a1457d4bd2bc50445a4c11908d195a78e16bcda1d7bf3bb33c0d6a"
     },
     "prisma-migration-safety": {
       "source": ".agents/skills/prisma-migration-safety",
@@ -42,6 +42,12 @@
       "sourceType": "local",
       "skillPath": ".agents/skills/mirador-core-min-evaluation/SKILL.md",
       "computedHash": "3d66f6c307b9039f7d3f083a0edb1cd84676ccd9820cf1d46603393db9f97fca"
+    },
+    "mirador-structural-decision-adr": {
+      "source": ".agents/skills/mirador-structural-decision-adr",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/mirador-structural-decision-adr/SKILL.md",
+      "computedHash": "dfb1e8097355d6817086763f66a0ea27ea8226d234feeb7439231aa59535714e"
     }
   }
 }

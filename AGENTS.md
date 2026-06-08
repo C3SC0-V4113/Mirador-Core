@@ -43,6 +43,9 @@ Fastify principal del sistema Mirador CEO analytics. La arquitectura viene de
 ## Documentacion y decisiones
 
 - Las decisiones estructurales viven en `docs/adrs`.
+- Usar la skill local `mirador-structural-decision-adr` cuando un cambio toque
+  runtime, arquitectura, limites publico/interno, deployment, seguridad o fronteras
+  entre servicios.
 - Usar la skill local `architecture-decision-records` para crear o revisar ADRs.
 - Usar la skill local `mirador-core-infrastructure` para cambios de infraestructura Node, Fastify, Prisma, ESLint, Prettier, Vitest, env, Docker o scripts.
 - Usar `prisma-migration-safety` antes de tocar migraciones con datos existentes.

@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Mirador Structural ADR'
+  short_description: 'Create ADRs for structural Mirador changes'
+  default_prompt: 'Use this skill when changing mirador-core runtime, architecture, or service boundaries.'

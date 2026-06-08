@@ -16,8 +16,9 @@ domain features.
 
 1. Read `AGENTS.md`, `package.json`, `tsconfig.json`, `eslint.config.js`,
    `prisma/schema.prisma`, and relevant files under `src/`.
-2. If the change is structural, check `docs/adrs` and create or update an ADR using
-   `architecture-decision-records`.
+2. If the change is structural, use `mirador-structural-decision-adr` to decide
+   the documentation and ADR work, then use `architecture-decision-records` for ADR
+   format help.
 3. Make the smallest coherent infrastructure change.
 4. Keep `src/app.ts` limited to Fastify setup: plugins, routes, error handling and
    cross-cutting HTTP concerns.
