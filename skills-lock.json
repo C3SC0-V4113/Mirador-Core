@@ -25,11 +25,11 @@
       "skillPath": "skills/vitest/SKILL.md",
       "computedHash": "87c8cf025987d1f1a0e9c0fd0b8605946a0ebd5478676471ce296d8f0adc0f07"
     },
-    "ceo-chat-core-infrastructure": {
-      "source": ".agents/skills/ceo-chat-core-infrastructure",
+    "mirador-core-infrastructure": {
+      "source": ".agents/skills/mirador-core-infrastructure",
       "sourceType": "local",
-      "skillPath": ".agents/skills/ceo-chat-core-infrastructure/SKILL.md",
-      "computedHash": "cd839a6682b39a8f1b31f41373a2e2214b190e544d05f9db78f52ae62e143f88"
+      "skillPath": ".agents/skills/mirador-core-infrastructure/SKILL.md",
+      "computedHash": "aa2b9944ae2034a10a1a7f25ea9cc420ba7111a55d965d7e3a36d4bf0a9775e3"
     },
     "prisma-migration-safety": {
       "source": ".agents/skills/prisma-migration-safety",
@@ -37,11 +37,11 @@
       "skillPath": ".agents/skills/prisma-migration-safety/SKILL.md",
       "computedHash": "c2260a72515da1a116581f696619b602c923972935ac075ae4e0fa0a976fd005"
     },
-    "ceo-chat-core-min-evaluation": {
-      "source": ".agents/skills/ceo-chat-core-min-evaluation",
+    "mirador-core-min-evaluation": {
+      "source": ".agents/skills/mirador-core-min-evaluation",
       "sourceType": "local",
-      "skillPath": ".agents/skills/ceo-chat-core-min-evaluation/SKILL.md",
-      "computedHash": "192cd5171008e30928d9bd2c18828c16258fb8f13a4bffd157617731af27cbd2"
+      "skillPath": ".agents/skills/mirador-core-min-evaluation/SKILL.md",
+      "computedHash": "3d66f6c307b9039f7d3f083a0edb1cd84676ccd9820cf1d46603393db9f97fca"
     }
   }
 }

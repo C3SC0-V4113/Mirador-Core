@@ -1,9 +1,9 @@
 {
-  "name": "ceo-chat-core",
+  "name": "mirador-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Backend core for the CEO chat-first analytics system.",
+  "description": "Backend core for the Mirador CEO analytics system.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",

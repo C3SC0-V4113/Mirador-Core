@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-`ceo-chat-core` es el backend principal para que un CEO consulte datos de negocio
+`mirador-core` es el backend principal para que un CEO consulte datos de negocio
 en lenguaje natural desde una experiencia web chat-first y desde clientes MCP
 externos por medio de un servicio adapter separado.
 
@@ -12,12 +12,12 @@ documentales citadas cuando aplique.
 
 ## Componentes
 
-- **Web app (`ceo-chat-web`)**: login y chat. No consume MCP directamente.
-- **Backend core (`ceo-chat-core`)**: Fastify, auth web, LLM Orchestrator, capa
+- **Web app (`mirador-web`)**: login y chat. No consume MCP directamente.
+- **Backend core (`mirador-core`)**: Fastify, auth web, LLM Orchestrator, capa
   semantica, fallback SQL gobernado, RAG retrieval, auditoria y Core Internal API.
-- **Servicio MCP (`ceo-chat-mcp`)**: adapter remoto MCP. Valida `MCP_API_KEY` y
+- **Servicio MCP (`mirador-mcp`)**: adapter remoto MCP. Valida `MCP_API_KEY` y
   llama a `/internal/core/*`.
-- **Ingestion (`ceo-chat-ingestion`)**: procesamiento asincrono de documentos para RAG.
+- **Ingestion (`mirador-ingestion`)**: procesamiento asincrono de documentos para RAG.
 - **PostgreSQL + pgvector**: datos ejecutivos, auditoria y chunks documentales.
 - **Cloudflare R2**: almacenamiento de documentos fuente para RAG.
 
@@ -35,7 +35,7 @@ Internas:
 - `/internal/core/schema-catalog`
 
 Las rutas internas no deben publicarse como API de browser. Su consumidor esperado es
-`ceo-chat-mcp` o servicios internos autenticados.
+`mirador-mcp` o servicios internos autenticados.
 
 ## Flujo chat-first
 

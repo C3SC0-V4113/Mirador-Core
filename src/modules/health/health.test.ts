@@ -14,7 +14,7 @@ describe('GET /health', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       status: 'ok',
-      service: 'ceo-chat-core',
+      service: 'mirador-core',
     });
 
     await app.close();

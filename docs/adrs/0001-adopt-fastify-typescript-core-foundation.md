@@ -5,7 +5,7 @@
 
 ## Context
 
-`ceo-chat-core` is the backend core for a CEO chat-first analytics system. The
+`mirador-core` is the backend core for the Mirador CEO analytics system. The
 architecture was first described in `walter-excersice`, but this repository must
 become the executable service foundation.
 
@@ -43,7 +43,7 @@ Reserve the initial public and internal route surface, but return explicit
 - The repo starts as a runnable backend, not only a document set.
 - Future modules can follow a predictable Fastify pattern.
 - Tests can validate service wiring before database and LLM work exists.
-- The service boundary with `ceo-chat-mcp` is explicit from the first commit.
+- The service boundary with `mirador-mcp` is explicit from the first commit.
 
 ### Negative
 

@@ -33,7 +33,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().min(1).default('0.0.0.0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  DATABASE_URL: z.url().default('postgresql://postgres:postgres@localhost:5432/ceo_chat_core'),
+  DATABASE_URL: z.url().default('postgresql://postgres:postgres@localhost:5432/mirador_core'),
   CORE_SERVICE_TOKEN: z.string().min(12).optional(),
 });
 

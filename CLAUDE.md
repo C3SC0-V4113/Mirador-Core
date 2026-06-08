@@ -8,13 +8,13 @@ Guia rapida para Claude Code en este repositorio. La fuente principal es
 - Escribir documentacion en espanol tecnico y pragmatico.
 - Tratar este repo como backend ejecutable, no como solo propuesta.
 - No implementar SQL libre como camino principal.
-- Mantener MCP fuera de Fastify: `ceo-chat-mcp` es un servicio separado.
+- Mantener MCP fuera de Fastify: `mirador-mcp` es un servicio separado.
 - Las rutas `/internal/core/*` son service-to-service y requieren `CORE_SERVICE_TOKEN`.
 - No exponer secretos, schema crudo ni credenciales LLM/DB.
 
 ## Estado
 
-Scaffold ejecutable de `ceo-chat-core`.
+Scaffold ejecutable de `mirador-core`.
 
 Incluye rutas reservadas, tests base y documentacion. Las respuestas
 `foundation_only` significan que la superficie fue reservada, pero el dominio no

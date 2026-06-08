@@ -1,11 +1,11 @@
 # AGENTS.md
 
-Instrucciones para agentes y asistentes que trabajen en `ceo-chat-core`.
+Instrucciones para agentes y asistentes que trabajen en `mirador-core`.
 
 ## Naturaleza del proyecto
 
 Este repositorio contiene codigo de producto, no solo documentacion. Es el backend
-Fastify principal del sistema CEO chat-first analytics. La arquitectura viene de
+Fastify principal del sistema Mirador CEO analytics. La arquitectura viene de
 `walter-excersice`; el patron tecnico base viene de `Identity-Service`.
 
 ## Baseline tecnico
@@ -33,7 +33,7 @@ Fastify principal del sistema CEO chat-first analytics. La arquitectura viene de
 
 - La experiencia del producto es chat-first: login y chat son las interfaces propias del MVP.
 - La web no consume MCP directamente.
-- `ceo-chat-mcp` es un servicio independiente que llama a `/internal/core/*`.
+- `mirador-mcp` es un servicio independiente que llama a `/internal/core/*`.
 - El camino principal para metricas es `MetricQuery` sobre catalogo semantico, no SQL libre.
 - Text-to-SQL solo existe como fallback gobernado y auditado.
 - Toda consulta de datos debe ser read-only, con allowlists, limites, timeout y auditoria.
@@ -44,7 +44,7 @@ Fastify principal del sistema CEO chat-first analytics. La arquitectura viene de
 
 - Las decisiones estructurales viven en `docs/adrs`.
 - Usar la skill local `architecture-decision-records` para crear o revisar ADRs.
-- Usar la skill local `ceo-chat-core-infrastructure` para cambios de infraestructura Node, Fastify, Prisma, ESLint, Prettier, Vitest, env, Docker o scripts.
+- Usar la skill local `mirador-core-infrastructure` para cambios de infraestructura Node, Fastify, Prisma, ESLint, Prettier, Vitest, env, Docker o scripts.
 - Usar `prisma-migration-safety` antes de tocar migraciones con datos existentes.
 
 ## Alcance actual

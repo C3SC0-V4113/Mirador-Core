@@ -1,11 +1,11 @@
 ---
-name: ceo-chat-core-min-evaluation
-description: Run the minimum local quality checks required before declaring implementation work complete in ceo-chat-core. Use when wrapping up changes, validating readiness, or deciding which checks apply for code, Prisma, env, Docker, script, infrastructure, or documentation changes.
+name: mirador-core-min-evaluation
+description: Run the minimum local quality checks required before declaring implementation work complete in mirador-core. Use when wrapping up changes, validating readiness, or deciding which checks apply for code, Prisma, env, Docker, script, infrastructure, or documentation changes.
 ---
 
-# ceo-chat-core Minimum Evaluation
+# mirador-core Minimum Evaluation
 
-Use this skill before declaring implementation work complete in `ceo-chat-core`.
+Use this skill before declaring implementation work complete in `mirador-core`.
 
 ## Required Checks
 

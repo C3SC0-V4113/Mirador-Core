@@ -1,14 +1,14 @@
 ---
-name: ceo-chat-core-infrastructure
-description: Configure and maintain the ceo-chat-core backend foundation. Use when Codex changes TypeScript, Fastify plugins, Prisma, ESLint, Prettier, Husky, Vitest, environment variables, Docker, deployment, hosting, package scripts, or other infrastructure/tooling for E:\Repositorios\chat-core.
+name: mirador-core-infrastructure
+description: Configure and maintain the mirador-core backend foundation. Use when Codex changes TypeScript, Fastify plugins, Prisma, ESLint, Prettier, Husky, Vitest, environment variables, Docker, deployment, hosting, package scripts, or other infrastructure/tooling for E:\Repositorios\chat-core.
 ---
 
-# ceo-chat-core Infrastructure
+# mirador-core Infrastructure
 
 ## Overview
 
 Use this skill to keep infrastructure and tooling changes consistent for
-`ceo-chat-core`. Keep these tasks separate from auth, LLM orchestration, SQL
+`mirador-core`. Keep these tasks separate from auth, LLM orchestration, SQL
 safety, RAG and MCP tool implementation unless the user explicitly asks for those
 domain features.
 
@@ -32,7 +32,7 @@ domain features.
 - Do not write direct database logic in route handlers.
 - Do not add framework abstractions unless they remove real complexity.
 - Do not bypass Zod env validation for new runtime config.
-- Do not implement MCP inside Fastify; MCP belongs in `ceo-chat-mcp`.
+- Do not implement MCP inside Fastify; MCP belongs in `mirador-mcp`.
 
 ## Expected Checks
 

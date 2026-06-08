@@ -24,4 +24,4 @@
 - SQL Safety Layer.
 - Chat orchestration and artifact persistence.
 - RAG retrieval with `pgvector`.
-- Internal core adapter for `ceo-chat-mcp`.
+- Internal core adapter for `mirador-mcp`.

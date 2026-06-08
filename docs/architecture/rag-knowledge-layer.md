@@ -14,7 +14,7 @@ respuesta con artefactos de datos y narrativa documental con citas.
 - **Document chunks**: tabla `document_chunks` con contenido, locator y embedding.
 - **Retrieval**: busqueda vectorial top-k filtrada por rol/scope.
 - **Synthesis**: el contenido recuperado se trata como dato, no como instruccion.
-- **Ingestion**: servicio separado `ceo-chat-ingestion`, no parte del hot path.
+- **Ingestion**: servicio separado `mirador-ingestion`, no parte del hot path.
 
 ## Infra prevista
 

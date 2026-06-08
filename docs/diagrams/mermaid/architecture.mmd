@@ -1,10 +1,10 @@
 flowchart LR
-  CEO["CEO"] --> Web["ceo-chat-web<br>Next.js SSR"]
+  CEO["CEO"] --> Web["mirador-web<br>Next.js SSR"]
   Web --> Gateway["Web API Gateway<br>Cloudflare"]
-  Gateway --> Core["ceo-chat-core<br>Fastify"]
+  Gateway --> Core["mirador-core<br>Fastify"]
 
   Client["MCP Client<br>Claude, Cursor, Codex"] --> McpGateway["MCP API Gateway<br>Cloudflare"]
-  McpGateway --> Mcp["ceo-chat-mcp<br>MCP adapter"]
+  McpGateway --> Mcp["mirador-mcp<br>MCP adapter"]
   Mcp -->|"CORE_SERVICE_TOKEN"| Core
 
   Core --> Planner["LLM Orchestrator"]
@@ -13,5 +13,5 @@ flowchart LR
   Semantic --> Safety["SQL Safety Layer"]
   Safety --> Pg["PostgreSQL + pgvector"]
   Rag --> Pg
-  Ingestion["ceo-chat-ingestion"] --> Pg
+  Ingestion["mirador-ingestion"] --> Pg
   R2["Cloudflare R2"] --> Ingestion

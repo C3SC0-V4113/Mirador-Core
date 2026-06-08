@@ -1,6 +1,6 @@
 # ADRs
 
-Las decisiones de arquitectura de `ceo-chat-core` viven en esta carpeta.
+Las decisiones de arquitectura de `mirador-core` viven en esta carpeta.
 
 ## Reglas
 

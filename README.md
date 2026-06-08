@@ -1,8 +1,8 @@
-# ceo-chat-core
+# mirador-core
 
-Backend core para el sistema **CEO chat-first analytics**.
+Backend core para el sistema **Mirador CEO analytics**.
 
-Este repositorio es la base ejecutable del servicio `ceo-chat-core`, descrito en
+Este repositorio es la base ejecutable del servicio `mirador-core`, descrito en
 `walter-excersice` como el backend Fastify principal del producto. La primera fase
 deja dependencias, estructura, rutas reservadas, documentacion, ADRs y herramientas
 agenticas. No implementa todavia autenticacion real, LLM Orchestrator, SQL Safety
@@ -10,7 +10,7 @@ Layer, RAG, metric catalog productivo ni acceso a datos.
 
 ## Rol del servicio
 
-`ceo-chat-core` concentra la logica que deben compartir la web y el servicio MCP:
+`mirador-core` concentra la logica que deben compartir la web y el servicio MCP:
 
 - Autenticacion web del CEO.
 - Orquestacion chat-first.
@@ -18,9 +18,9 @@ Layer, RAG, metric catalog productivo ni acceso a datos.
 - Validacion SQL read-only.
 - Recuperacion documental RAG.
 - Auditoria y `trace_id`.
-- Core Internal API para `ceo-chat-mcp`.
+- Core Internal API para `mirador-mcp`.
 
-El endpoint MCP remoto no vive aqui. `ceo-chat-mcp` sera un servicio separado que
+El endpoint MCP remoto no vive aqui. `mirador-mcp` sera un servicio separado que
 expone `POST /mcp` y llama a `/internal/core/*` con token service-to-service.
 
 ## Estado actual

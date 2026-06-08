@@ -1,4 +1,4 @@
-# ceo-chat-core Project Foundation
+# mirador-core Project Foundation
 
 ## Structure
 
