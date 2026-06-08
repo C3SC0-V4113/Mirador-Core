@@ -1,0 +1,55 @@
+erDiagram
+  USER ||--o{ SESSION : owns
+  USER ||--o{ CONVERSATION : starts
+  CONVERSATION ||--o{ CHAT_MESSAGE : contains
+  CONVERSATION ||--o{ CHAT_ARTIFACT : produces
+  CHAT_MESSAGE ||--o{ QUERY_AUDIT_LOG : triggers
+  DOCUMENT ||--o{ DOCUMENT_CHUNK : chunks
+  QUERY_AUDIT_LOG }o--o{ DOCUMENT : cites
+
+  USER {
+    uuid id PK
+    string email
+    string role
+  }
+  SESSION {
+    uuid id PK
+    uuid user_id FK
+    datetime expires_at
+  }
+  CONVERSATION {
+    uuid id PK
+    uuid user_id FK
+    string title
+  }
+  CHAT_MESSAGE {
+    uuid id PK
+    uuid conversation_id FK
+    string role
+    string content
+  }
+  CHAT_ARTIFACT {
+    uuid id PK
+    uuid conversation_id FK
+    string artifact_type
+    json payload
+  }
+  QUERY_AUDIT_LOG {
+    uuid id PK
+    uuid message_id FK
+    string path
+    json metric_query
+    string trace_id
+  }
+  DOCUMENT {
+    uuid id PK
+    string title
+    string source_uri
+    string access_scope
+  }
+  DOCUMENT_CHUNK {
+    uuid id PK
+    uuid document_id FK
+    string content
+    vector embedding
+  }

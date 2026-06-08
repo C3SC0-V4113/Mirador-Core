@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "architecture-decision-records": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/documentation-generation/skills/architecture-decision-records/SKILL.md",
+      "computedHash": "f8928e30d37eb7654e18adc93c752b43e7272f88054fba5a7813b434779c50e6"
+    },
+    "fastify-best-practices": {
+      "source": "mcollina/skills",
+      "sourceType": "github",
+      "skillPath": "skills/fastify/SKILL.md",
+      "computedHash": "d1d90340de01fe4b13aadcc868e69a15f98bf03d1dd881bacbb4762b93e93733"
+    },
+    "postgresql-best-practices": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "postgresql-best-practices/SKILL.md",
+      "computedHash": "ca01bf3739a5de5db0e00277d06eaddc18175c9f5387587cac02b9aec51dbe5c"
+    },
+    "vitest": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vitest/SKILL.md",
+      "computedHash": "87c8cf025987d1f1a0e9c0fd0b8605946a0ebd5478676471ce296d8f0adc0f07"
+    },
+    "ceo-chat-core-infrastructure": {
+      "source": ".agents/skills/ceo-chat-core-infrastructure",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/ceo-chat-core-infrastructure/SKILL.md",
+      "computedHash": "cd839a6682b39a8f1b31f41373a2e2214b190e544d05f9db78f52ae62e143f88"
+    },
+    "prisma-migration-safety": {
+      "source": ".agents/skills/prisma-migration-safety",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/prisma-migration-safety/SKILL.md",
+      "computedHash": "c2260a72515da1a116581f696619b602c923972935ac075ae4e0fa0a976fd005"
+    },
+    "ceo-chat-core-min-evaluation": {
+      "source": ".agents/skills/ceo-chat-core-min-evaluation",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/ceo-chat-core-min-evaluation/SKILL.md",
+      "computedHash": "192cd5171008e30928d9bd2c18828c16258fb8f13a4bffd157617731af27cbd2"
+    }
+  }
+}

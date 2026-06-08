@@ -1,0 +1,17 @@
+flowchart LR
+  CEO["CEO"] --> Web["ceo-chat-web<br>Next.js SSR"]
+  Web --> Gateway["Web API Gateway<br>Cloudflare"]
+  Gateway --> Core["ceo-chat-core<br>Fastify"]
+
+  Client["MCP Client<br>Claude, Cursor, Codex"] --> McpGateway["MCP API Gateway<br>Cloudflare"]
+  McpGateway --> Mcp["ceo-chat-mcp<br>MCP adapter"]
+  Mcp -->|"CORE_SERVICE_TOKEN"| Core
+
+  Core --> Planner["LLM Orchestrator"]
+  Planner --> Semantic["Semantic Metric Layer"]
+  Planner --> Rag["Knowledge Retrieval"]
+  Semantic --> Safety["SQL Safety Layer"]
+  Safety --> Pg["PostgreSQL + pgvector"]
+  Rag --> Pg
+  Ingestion["ceo-chat-ingestion"] --> Pg
+  R2["Cloudflare R2"] --> Ingestion

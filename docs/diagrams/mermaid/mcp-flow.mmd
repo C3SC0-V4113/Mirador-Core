@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant Client as MCP Client
+  participant Gateway as MCP API Gateway
+  participant Mcp as ceo-chat-mcp
+  participant Core as ceo-chat-core
+  participant Db as PostgreSQL
+
+  Client->>Gateway: POST /mcp
+  Gateway->>Mcp: Forward authenticated request
+  Mcp->>Mcp: Validate MCP_API_KEY and tool scope
+  Mcp->>Core: POST /internal/core/ask
+  Core->>Core: Plan metric_query or knowledge_lookup
+  Core->>Db: Read-only query or vector retrieval
+  Db-->>Core: Data and evidence
+  Core-->>Mcp: Answer, artifacts, citations, trace_id
+  Mcp-->>Client: MCP tool result
