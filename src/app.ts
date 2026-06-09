@@ -10,13 +10,14 @@ import { chatRoutes } from './modules/chat/chat.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { internalCoreRoutes } from './modules/internal-core/internal-core.routes.js';
 import { schemaCatalogRoutes } from './modules/schema-catalog/schema-catalog.routes.js';
-import { registerPrisma } from './shared/db/prisma.js';
+import { registerPrisma, registerReadonlyPrisma } from './shared/db/prisma.js';
 import { registerErrorHandler } from './shared/http/error-handler.js';
 import { requestContextPlugin } from './shared/http/request-context.js';
 import { createLoggerOptions } from './shared/logging/logger.js';
 
 export type BuildAppOptions = {
   prisma?: PrismaClient;
+  prismaReadonly?: PrismaClient;
 };
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -32,6 +33,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
   await app.register(cookie);
   registerPrisma(app, options.prisma);
+  registerReadonlyPrisma(app, options.prismaReadonly);
   await app.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',

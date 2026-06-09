@@ -62,8 +62,20 @@ const envSchema = z
     ANALYTICS_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
     ANALYTICS_DEFAULT_LIMIT: z.coerce.number().int().positive().default(100),
     ANALYTICS_MAX_LIMIT: z.coerce.number().int().positive().default(500),
+    LLM_PROVIDER: z.enum(['openai', 'stub']).default('stub'),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    ORCHESTRATOR_MODEL: z.string().min(1).default('gpt-5.2'),
+    LIGHT_MODEL: z.string().min(1).default('gpt-5-mini'),
   })
   .superRefine((value, ctx) => {
+    if (value.LLM_PROVIDER === 'openai' && value.OPENAI_API_KEY === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OPENAI_API_KEY'],
+        message: 'OPENAI_API_KEY is required when LLM_PROVIDER is "openai".',
+      });
+    }
+
     if (value.NODE_ENV !== 'production') {
       return;
     }

@@ -63,6 +63,27 @@ enum ExpenseArea {
   ADMIN
 }
 
+enum ChatRole {
+  USER
+  ASSISTANT
+}
+
+enum ArtifactType {
+  TEXT
+  TABLE
+  KPI
+  CHART
+  REPORT
+  ACTION_PLAN
+}
+
+enum IntentMode {
+  RESPONDER
+  ANALIZAR
+  REPORTE_VISUAL
+  PLAN
+}
+
 model User {
   id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email         String         @unique
@@ -91,15 +112,56 @@ model Session {
 }
 
 model Conversation {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?        @map("user_id") @db.Uuid
   title     String?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages  ChatMessage[]
+  artifacts ChatArtifact[]
 
   @@index([userId])
   @@map("conversations")
+}
+
+model ChatMessage {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String         @map("conversation_id") @db.Uuid
+  role           ChatRole
+  intentMode     IntentMode?    @map("intent_mode")
+  content        String
+  traceId        String         @map("trace_id")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  conversation   Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  artifacts      ChatArtifact[]
+
+  @@index([conversationId])
+  @@map("chat_messages")
+}
+
+model ChatArtifact {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  messageId      String?      @map("message_id") @db.Uuid
+  artifactType   ArtifactType @map("artifact_type")
+  question       String
+  period         String?
+  sourceViews    String[]     @map("source_views")
+  validatedSql   String?      @map("validated_sql")
+  summary        String?
+  payload        Json
+  chartSpec      Json?        @map("chart_spec")
+  freshness      String?
+  warnings       String[]
+  traceId        String       @map("trace_id")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message        ChatMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId])
+  @@index([messageId])
+  @@map("chat_artifacts")
 }
 
 model Customer {

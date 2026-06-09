@@ -25,9 +25,21 @@ schema y los `GRANT` sobre las views. Ver
 - `users`: usuario MVP unico con `role = CEO`, email y hash Argon2.
 - `sessions`: sesiones JWT persistidas con `expires_at`, `revoked_at` y
   `token_family_id`.
-- `conversations`: mantiene el punto de entrada del chat para fases siguientes.
+- `conversations`: hilo de chat del CEO.
 
 No existe registro publico ni multiusuario operativo en Fases 0-5.
+
+## Chat (Fase 6)
+
+- `chat_messages`: mensajes `USER`/`ASSISTANT` por conversacion, con `intent_mode`
+  opcional y `trace_id`.
+- `chat_artifacts`: artefactos generados (`artifact_type`, `question`, `period`,
+  `source_views`, `validated_sql`, `summary`, `payload`, `chart_spec`,
+  `freshness`, `warnings`, `trace_id`).
+
+Estas tablas las escribe el runtime (`mirador_app`); el rol read-only no tiene
+acceso. Ver
+[ADR 0004](adrs/0004-adopt-chat-orchestrator-with-deterministic-metric-path-and-pluggable-llm.md).
 
 ## Tablas Fuente MVP
 

@@ -9,6 +9,7 @@ declare module 'fastify' {
   // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface FastifyInstance {
     prisma: PrismaClient;
+    prismaReadonly: PrismaClient;
   }
 }
 
@@ -26,6 +27,18 @@ export function registerPrisma(app: FastifyInstance, prismaClient?: PrismaClient
   const prisma = prismaClient ?? createPrismaClient(env.DATABASE_URL_APP);
 
   app.decorate('prisma', prisma);
+
+  if (prismaClient === undefined) {
+    app.addHook('onClose', async () => {
+      await prisma.$disconnect();
+    });
+  }
+}
+
+export function registerReadonlyPrisma(app: FastifyInstance, prismaClient?: PrismaClient) {
+  const prisma = prismaClient ?? createReadonlyPrismaClient();
+
+  app.decorate('prismaReadonly', prisma);
 
   if (prismaClient === undefined) {
     app.addHook('onClose', async () => {

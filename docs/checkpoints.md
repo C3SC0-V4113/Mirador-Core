@@ -49,7 +49,9 @@ Este roadmap se deriva de `E:\Repositorios\walter-excersice`:
 - [x] Husky pre-commit con `npx lint-staged`.
 - [x] Nombre interno actualizado a `mirador-core`.
 - [x] Dominio real de auth CEO, datos MVP, catalogo semantico y SQL Safety inicial.
-- [ ] Dominio real de chat, LLM, RAG y MCP interno.
+- [x] Runtime read-only cableado y compilador determinista `MetricQuery`->SQL (cierre de Fase 5).
+- [x] Chat orchestrator (corte vertical de metricas) con proveedor LLM intercambiable (OpenAI/stub).
+- [ ] Chat completo (report/action_plan, mini-chat de chart, intent_mode pleno), RAG y MCP interno.
 
 ## Fase 1: Fundacion Backend
 
@@ -133,9 +135,10 @@ Fuentes: `proposal.md`, ADR-0005, ADR-0006 y `data-assumptions.md`.
 - [x] Bloquear DDL, DML, multiples statements y funciones no autorizadas.
 - [x] Aplicar allowlist de views, columnas, relaciones y funciones.
 - [x] Forzar `LIMIT`, max rows y timeout.
-- [x] Ejecutar runtime con rol PostgreSQL read-only.
+- [x] Ejecutar runtime con rol PostgreSQL read-only. (Cableado `app.prismaReadonly`
+      en Fase 6; antes solo existia el cliente sin usar.)
 - [x] Validar tanto SQL determinista de la capa semantica como SQL candidato de
-      fallback.
+      fallback. (Compilador `MetricQuery`->SQL agregado en Fase 6.)
 - [x] Rechazar tablas internas no autorizadas y schema crudo fuera del contrato.
 - [x] Emitir errores o aclaraciones cuando una pregunta no pueda resolverse de forma
       segura.
@@ -145,22 +148,29 @@ Fuentes: `proposal.md`, ADR-0005, ADR-0006 y `data-assumptions.md`.
 Fuentes: ADR-0005, `proposal.md`, `data-assumptions.md`, `use-cases.md` y
 `user-challenges.md`.
 
-- [ ] Implementar `POST /api/chat/messages`.
-- [ ] Implementar `GET /api/chat/conversations`.
-- [ ] Persistir `conversations` y `chat_messages`.
-- [ ] Soportar `intent_mode`: `responder`, `analizar`, `reporte_visual`, `plan`.
+Entregado como corte vertical del camino de metricas (ver ADR-0004). Lo no
+marcado queda diferido a una segunda iteracion.
+
+- [x] Implementar `POST /api/chat/messages`.
+- [x] Implementar `GET /api/chat/conversations`.
+- [x] Persistir `conversations` y `chat_messages`.
+- [~] Soportar `intent_mode`: `responder`, `analizar`, `reporte_visual`, `plan`.
+  (Se acepta y persiste el modo; el comportamiento diferenciado queda diferido.)
 - [ ] Combinar requisitos del modo con requisitos explicitos del prompt; el modo no
       debe descartar lo pedido por el usuario.
-- [ ] Guiar el chat con preguntas sugeridas, acciones rapidas y aclaraciones.
-- [ ] Incluir preguntas sugeridas base: cambio del ultimo periodo, proyectos que
+- [~] Guiar el chat con preguntas sugeridas, acciones rapidas y aclaraciones.
+  (Preguntas sugeridas y aclaracion ante metrica no resuelta; acciones rapidas
+  diferidas.)
+- [x] Incluir preguntas sugeridas base: cambio del ultimo periodo, proyectos que
       requieren atencion, clientes en riesgo, variacion de MRR y tickets criticos.
-- [ ] Devolver narrativa ejecutiva, `data`, `artifacts`, `chart`, `warnings`,
+- [x] Devolver narrativa ejecutiva, `data`, `artifacts`, `chart`, `warnings`,
       `suggested_questions`, metadata y `trace_id`.
-- [ ] Persistir `chat_artifacts` con `artifact_type`, pregunta, periodo,
+- [x] Persistir `chat_artifacts` con `artifact_type`, pregunta, periodo,
       `source_views`, `validated_sql`, `summary`, `payload`, `chart_spec`,
       `freshness`, `warnings` y `trace_id`.
-- [ ] Soportar artefactos `text`, `table`, `kpi`, `chart`, `report` y
-      `action_plan`.
+- [~] Soportar artefactos `text`, `table`, `kpi`, `chart`, `report` y
+  `action_plan`. (Implementados `text`, `table`, `kpi` y `chart`;
+  `report` y `action_plan` diferidos.)
 - [ ] Implementar mini chat contextual para editar `chart_spec` de graficas ya
       generadas.
 - [ ] Evitar nueva query cuando la edicion solo cambie visualizacion; derivar al chat
