@@ -12,7 +12,7 @@ import { internalCoreRoutes } from './modules/internal-core/internal-core.routes
 import { schemaCatalogRoutes } from './modules/schema-catalog/schema-catalog.routes.js';
 import { registerPrisma, registerReadonlyPrisma } from './shared/db/prisma.js';
 import { registerErrorHandler } from './shared/http/error-handler.js';
-import { requestContextPlugin } from './shared/http/request-context.js';
+import { registerRequestContext } from './shared/http/request-context.js';
 import { createLoggerOptions } from './shared/logging/logger.js';
 
 export type BuildAppOptions = {
@@ -38,7 +38,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     max: 100,
     timeWindow: '1 minute',
   });
-  await app.register(requestContextPlugin);
+  registerRequestContext(app);
   await app.register(authRoutes);
   await app.register(chatRoutes);
   await app.register(schemaCatalogRoutes);

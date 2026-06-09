@@ -70,17 +70,20 @@ export async function handleChatMessage(
   });
 
   const catalogContext = buildMetricCatalogContext();
-  const candidate = await deps.llm.planMetricQuery(input.message, catalogContext);
 
   let plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition };
 
   try {
+    const candidate = await deps.llm.planMetricQuery(input.message, catalogContext);
+
     if (candidate === null) {
       throw new Error('No metric resolved.');
     }
 
     plan = validateMetricQuery(candidate);
   } catch {
+    // Cubre tanto "ninguna metrica resuelta" como errores del proveedor LLM o de
+    // validacion: en todos los casos respondemos con una aclaracion, no con 500.
     return respondClarification(deps, conversationId, input, intentMode);
   }
 
@@ -90,12 +93,7 @@ export async function handleChatMessage(
 
   const artifactType = pickArtifactType(plan.metric, queryResult.rows);
   const chartSpec = buildChartSpec(plan.metric, artifactType);
-  const narrative = await deps.llm.composeNarrative({
-    question: input.message,
-    metricLabel: plan.metric.label,
-    format: plan.metric.format,
-    rows: queryResult.rows,
-  });
+  const narrative = await composeNarrativeSafe(deps, input, plan, queryResult.rows);
   const warnings = queryResult.rows.length === 0 ? ['La consulta no devolvió filas.'] : [];
   const period = derivePeriod(plan.query);
   const freshness = new Date().toISOString();
@@ -195,6 +193,25 @@ async function respondClarification(
       intent_mode: input.intentMode ?? null,
     },
   };
+}
+
+async function composeNarrativeSafe(
+  deps: ChatServiceDeps,
+  input: HandleChatInput,
+  plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition },
+  rows: unknown[],
+): Promise<string> {
+  try {
+    return await deps.llm.composeNarrative({
+      question: input.message,
+      metricLabel: plan.metric.label,
+      format: plan.metric.format,
+      rows,
+    });
+  } catch {
+    // Si la narrativa LLM falla, no perdemos los datos ya calculados.
+    return `${plan.metric.label}: ${String(rows.length)} registro(s) recuperados.`;
+  }
 }
 
 function pickArtifactType(metric: MetricDefinition, rows: unknown[]): ArtifactType {

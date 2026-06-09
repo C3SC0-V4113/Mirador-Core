@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { FastifyPluginCallback } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 
 declare module 'fastify' {
   // Fastify request augmentation requires an interface declaration.
@@ -10,7 +10,11 @@ declare module 'fastify' {
   }
 }
 
-export const requestContextPlugin: FastifyPluginCallback = (app, _options, done) => {
+// Se registra directamente sobre la instancia raiz (no via app.register) para que
+// la decoracion y el hook apliquen a TODAS las rutas. Dentro de un plugin
+// encapsulado, el hook no correria para rutas hermanas y `request.traceId`
+// quedaria indefinido.
+export function registerRequestContext(app: FastifyInstance) {
   app.decorateRequest('traceId', '');
 
   app.addHook('onRequest', (request, reply, next) => {
@@ -22,6 +26,4 @@ export const requestContextPlugin: FastifyPluginCallback = (app, _options, done)
     reply.header('x-trace-id', traceId);
     next();
   });
-
-  done();
-};
+}

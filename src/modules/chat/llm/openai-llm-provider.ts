@@ -50,7 +50,18 @@ export function createOpenAiLlmProvider(): LlmProvider {
         return null;
       }
 
-      return parsed;
+      // Los modelos suelen emitir null para campos "no aplica" (p.ej. time_range,
+      // compare_to). El contrato MetricQuery espera ausencia, no null, asi que
+      // normalizamos: reconstruimos el objeto sin las claves con valor null.
+      const normalized: Record<string, unknown> = {};
+
+      for (const [key, value] of Object.entries(parsed)) {
+        if (value !== null) {
+          normalized[key] = value;
+        }
+      }
+
+      return normalized;
     },
 
     async composeNarrative(input: NarrativeInput) {
