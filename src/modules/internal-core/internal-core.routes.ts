@@ -2,6 +2,7 @@ import type { FastifyPluginCallback, FastifyRequest } from 'fastify';
 
 import { env } from '../../config/env.js';
 import { sendFoundationOnly } from '../../shared/http/foundation-response.js';
+import { buildBusinessSchemaContext } from '../schema-catalog/metric-catalog.js';
 
 function isAuthorizedInternalRequest(request: FastifyRequest) {
   const authorization = request.headers.authorization;
@@ -40,9 +41,11 @@ export const internalCoreRoutes: FastifyPluginCallback = (app, _options, done) =
     next();
   });
 
-  app.post('/internal/core/ask', (_request, reply) => sendFoundationOnly(reply, 'internal-core.ask'));
+  app.post('/internal/core/ask', (_request, reply) =>
+    sendFoundationOnly(reply, 'internal-core.ask'),
+  );
   app.get('/internal/core/schema-catalog', (_request, reply) =>
-    sendFoundationOnly(reply, 'internal-core.schema-catalog'),
+    reply.send(buildBusinessSchemaContext()),
   );
 
   done();

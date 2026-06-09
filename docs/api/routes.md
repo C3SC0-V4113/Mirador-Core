@@ -2,18 +2,22 @@
 
 ## Public routes
 
-| Method | Path                      | Estado       |
-| ------ | ------------------------- | ------------ |
-| `GET`  | `/health`                 | Implementada |
-| `POST` | `/api/auth/login`         | Reservada    |
-| `POST` | `/api/auth/logout`        | Reservada    |
-| `GET`  | `/api/auth/session`       | Reservada    |
-| `POST` | `/api/chat/messages`      | Reservada    |
-| `GET`  | `/api/chat/conversations` | Reservada    |
-| `GET`  | `/api/schema/catalog`     | Reservada    |
+| Method | Path                      | Estado                 |
+| ------ | ------------------------- | ---------------------- |
+| `GET`  | `/health`                 | Implementada           |
+| `POST` | `/api/auth/login`         | Implementada           |
+| `POST` | `/api/auth/logout`        | Implementada           |
+| `GET`  | `/api/auth/session`       | Implementada           |
+| `POST` | `/api/chat/messages`      | Reservada protegida    |
+| `GET`  | `/api/chat/conversations` | Reservada protegida    |
+| `GET`  | `/api/schema/catalog`     | Implementada protegida |
 
-Las rutas reservadas devuelven `501` con `status: "foundation_only"` hasta que el
-dominio este implementado.
+`/api/auth/login` setea la cookie `mirador_session` con `HttpOnly` y
+`SameSite=Lax`. Las rutas de chat siguen devolviendo `501` con
+`status: "foundation_only"`, pero ahora requieren una sesion CEO valida.
+
+`/api/schema/catalog` devuelve un catalogo semantico compacto para el rol CEO. No
+expone DDL crudo, tablas internas ni `source_view`.
 
 ## Internal routes
 
@@ -30,3 +34,6 @@ Authorization: Bearer <CORE_SERVICE_TOKEN>
 
 Si `CORE_SERVICE_TOKEN` no esta configurado, responden
 `503 INTERNAL_CORE_NOT_CONFIGURED`.
+
+`/internal/core/ask` sigue reservado. `/internal/core/schema-catalog` devuelve el
+`BusinessSchemaContext` allowlisted para fallback SQL interno.

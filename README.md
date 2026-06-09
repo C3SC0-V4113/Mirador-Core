@@ -3,10 +3,9 @@
 Backend core para el sistema **Mirador CEO analytics**.
 
 Este repositorio es la base ejecutable del servicio `mirador-core`, descrito en
-`walter-excersice` como el backend Fastify principal del producto. La primera fase
-deja dependencias, estructura, rutas reservadas, documentacion, ADRs y herramientas
-agenticas. No implementa todavia autenticacion real, LLM Orchestrator, SQL Safety
-Layer, RAG, metric catalog productivo ni acceso a datos.
+`walter-excersice` como el backend Fastify principal del producto. Las primeras
+fases dejan la fundacion Fastify, auth CEO, sesiones web, datos sinteticos MVP,
+catalogo semantico y SQL Safety Layer inicial.
 
 ## Rol del servicio
 
@@ -39,10 +38,7 @@ Incluido:
 
 Fuera de alcance por ahora:
 
-- Login real y sesiones JWT.
 - Ejecucion real de preguntas de chat.
-- Catalogo de metricas productivo.
-- Generacion SQL, AST parser y SQL Safety Layer.
 - RAG sobre `pgvector`.
 - Servicio MCP.
 
@@ -66,6 +62,10 @@ Internas:
 Las rutas internas requieren `CORE_SERVICE_TOKEN`; si no esta configurado,
 responden `503 INTERNAL_CORE_NOT_CONFIGURED`.
 
+`/api/auth/login` emite una cookie `HttpOnly` llamada `mirador_session`.
+`/api/schema/catalog` requiere sesion CEO y devuelve el catalogo semantico
+compacto. Las rutas de chat siguen reservadas, pero ahora requieren sesion.
+
 ## Local setup
 
 1. Copiar `.env.example` a `.env`.
@@ -75,23 +75,38 @@ responden `503 INTERNAL_CORE_NOT_CONFIGURED`.
    npm install
    ```
 
-3. Levantar PostgreSQL local cuando se empiece a usar Prisma en runtime:
+3. Levantar PostgreSQL local:
 
    ```powershell
    docker compose up -d
    ```
 
-4. Generar Prisma Client:
+4. Aplicar migraciones y generar Prisma Client:
 
    ```powershell
+   npm run db:migrate
    npm run db:generate
    ```
 
-5. Ejecutar el servicio:
+5. Cargar datos sinteticos:
+
+   ```powershell
+   npm run db:seed
+   ```
+
+6. Ejecutar el servicio:
 
    ```powershell
    npm run dev
    ```
+
+Credenciales locales por defecto:
+
+- CEO email: `ceo@mirador.local`
+- CEO password: `mirador-dev-password`
+
+El password solo existe como valor local de desarrollo; la base guarda el hash
+Argon2 definido en `.env`.
 
 ## Checks
 

@@ -48,7 +48,8 @@ Este roadmap se deriva de `E:\Repositorios\walter-excersice`:
 - [x] `skills-lock.json` generado.
 - [x] Husky pre-commit con `npx lint-staged`.
 - [x] Nombre interno actualizado a `mirador-core`.
-- [ ] Dominio real de auth, datos, chat, LLM, SQL Safety, RAG y MCP interno.
+- [x] Dominio real de auth CEO, datos MVP, catalogo semantico y SQL Safety inicial.
+- [ ] Dominio real de chat, LLM, RAG y MCP interno.
 
 ## Fase 1: Fundacion Backend
 
@@ -61,82 +62,82 @@ Fuente: `Identity-Service` como patron tecnico y `walter-excersice/docs/architec
 - [x] Mantener checks obligatorios: `typecheck`, `lint`, `test`, `build`.
 - [x] Crear skill local `mirador-structural-decision-adr` para guiar cambios de
       documentacion y ADRs ante decisiones estructurales.
-- [ ] Agregar un ADR cuando se cambie una decision estructural de runtime,
+- [x] Agregar un ADR cuando se cambie una decision estructural de runtime,
       arquitectura o limites de servicio.
 
 ## Fase 2: Auth CEO Y Sesion Web
 
 Fuentes: `open-questions.md`, `data-assumptions.md`, ADR-0004 y ADR-0005.
 
-- [ ] Modelar usuario unico `CEO` para MVP, sin registro publico ni multiusuario.
-- [ ] Crear seed/setup para `CEO_EMAIL` y `CEO_PASSWORD_HASH` sin documentar
+- [x] Modelar usuario unico `CEO` para MVP, sin registro publico ni multiusuario.
+- [x] Crear seed/setup para `CEO_EMAIL` y `CEO_PASSWORD_HASH` sin documentar
       credenciales reales en texto plano.
-- [ ] Implementar login web en `POST /api/auth/login`.
-- [ ] Implementar logout en `POST /api/auth/logout`.
-- [ ] Implementar `GET /api/auth/session` como endpoint liviano para validar sesion.
-- [ ] Emitir JWT con `sub`, `role = CEO`, expiracion y, si aplica, `session_id`.
-- [ ] Validar rol `CEO` en backend antes de exponer chat, schema o consultas.
-- [ ] Persistir sesiones con `expires_at`, `revoked_at`, `token_family_id` y
+- [x] Implementar login web en `POST /api/auth/login`.
+- [x] Implementar logout en `POST /api/auth/logout`.
+- [x] Implementar `GET /api/auth/session` como endpoint liviano para validar sesion.
+- [x] Emitir JWT con `sub`, `role = CEO`, expiracion y, si aplica, `session_id`.
+- [x] Validar rol `CEO` en backend antes de exponer chat, schema o consultas.
+- [x] Persistir sesiones con `expires_at`, `revoked_at`, `token_family_id` y
       trazabilidad minima.
-- [ ] Documentar variables `CEO_EMAIL`, `CEO_PASSWORD_HASH` y `JWT_SECRET` en
+- [x] Documentar variables `CEO_EMAIL`, `CEO_PASSWORD_HASH` y `JWT_SECRET` en
       `.env.example`.
 
 ## Fase 3: Modelo De Datos MVP Y Seed
 
 Fuentes: `data-assumptions.md`, `open-questions.md` y `use-cases.md`.
 
-- [ ] Separar credenciales de DB: `DATABASE_URL_MIGRATION` para migraciones/setup y
+- [x] Separar credenciales de DB: `DATABASE_URL_MIGRATION` para migraciones/setup y
       `DATABASE_URL_READONLY` para runtime read-only.
-- [ ] Configurar PostgreSQL Railway como target MVP y Prisma como ORM.
-- [ ] Habilitar dataset ficticio de 12 a 18 meses en USD.
-- [ ] Incluir anomalies intencionales para alertas, explicacion de cambios y
+- [x] Configurar PostgreSQL Docker Desktop para desarrollo MVP y Prisma como ORM.
+- [x] Habilitar dataset ficticio de 12 a 18 meses en USD.
+- [x] Incluir anomalies intencionales para alertas, explicacion de cambios y
       preguntas contextuales.
-- [ ] Modelar tablas fuente candidatas: `customers`, `subscriptions`, `invoices`,
+- [x] Modelar tablas fuente candidatas: `customers`, `subscriptions`, `invoices`,
       `sales_opportunities`, `projects`, `time_entries`, `support_tickets`,
       `expenses`.
-- [ ] Crear views gobernadas `ceo_revenue_summary`, `ceo_customer_health`,
+- [x] Crear views gobernadas `ceo_revenue_summary`, `ceo_customer_health`,
       `ceo_sales_pipeline`, `ceo_project_margin`, `ceo_delivery_risk`,
       `ceo_support_health`, `ceo_financial_runway`.
-- [ ] Cubrir casos de revenue, churn, pipeline, delivery, margen, soporte y finanzas
+- [x] Cubrir casos de revenue, churn, pipeline, delivery, margen, soporte y finanzas
       desde el seed.
-- [ ] Evitar que el runtime consulte tablas internas no autorizadas cuando existan
+- [x] Evitar que el runtime consulte tablas internas no autorizadas cuando existan
       views `ceo_*`.
 
 ## Fase 4: Catalogo Semantico Y Schema Contexts
 
 Fuentes: ADR-0006, `semantic-layer-and-model-strategy.md` y `open-questions.md`.
 
-- [ ] Crear catalogo de metricas versionado en YAML o JSON.
-- [ ] Cubrir metricas oficiales MVP: MRR, ARR, crecimiento MRR, expansion revenue,
+- [x] Crear catalogo de metricas versionado en YAML o JSON.
+- [x] Cubrir metricas oficiales MVP: MRR, ARR, crecimiento MRR, expansion revenue,
       churn rate, clientes en riesgo, pipeline por etapa, forecast de cierre,
       proyectos en riesgo, margen por proyecto, tickets criticos, SLA, burn rate,
       runway y costos por area.
-- [ ] Definir por metrica: `name`, `label`, `description`, `synonyms`, `grain`,
+- [x] Definir por metrica: `name`, `label`, `description`, `synonyms`, `grain`,
       `source_view`, `measure`, `dimensions`, `filters_allowed`, `time_column`,
       `format`, `default_chart`.
-- [ ] Implementar contrato `MetricQuery` con validacion Zod.
-- [ ] Validar que `metric`, `dimensions`, `filters`, `time_range`, `compare_to` y
+- [x] Implementar contrato `MetricQuery` con validacion Zod.
+- [x] Validar que `metric`, `dimensions`, `filters`, `time_range`, `compare_to` y
       `limit` pertenezcan al catalogo permitido por rol.
-- [ ] Implementar `MetricCatalogContext` compacto y cacheable para el camino
+- [x] Implementar `MetricCatalogContext` compacto y cacheable para el camino
       semantico.
-- [ ] Implementar `BusinessSchemaContext` allowlisted para fallback SQL.
-- [ ] Exponer `GET /api/schema/catalog` autenticado sin DDL crudo ni objetos
+- [x] Implementar `BusinessSchemaContext` allowlisted para fallback SQL.
+- [x] Exponer `GET /api/schema/catalog` autenticado sin DDL crudo ni objetos
       internos no autorizados.
 
 ## Fase 5: SQL Safety Layer
 
 Fuentes: `proposal.md`, ADR-0005, ADR-0006 y `data-assumptions.md`.
 
-- [ ] Implementar parser AST para validar SQL, no solo regex.
-- [ ] Permitir solo `SELECT`.
-- [ ] Bloquear DDL, DML, multiples statements y funciones no autorizadas.
-- [ ] Aplicar allowlist de views, columnas, relaciones y funciones.
-- [ ] Forzar `LIMIT`, max rows y timeout.
-- [ ] Ejecutar runtime con rol PostgreSQL read-only.
-- [ ] Validar tanto SQL determinista de la capa semantica como SQL candidato de
+- [x] Implementar parser AST para validar SQL, no solo regex.
+- [x] Permitir solo `SELECT`.
+- [x] Bloquear DDL, DML, multiples statements y funciones no autorizadas.
+- [x] Aplicar allowlist de views, columnas, relaciones y funciones.
+- [x] Forzar `LIMIT`, max rows y timeout.
+- [x] Ejecutar runtime con rol PostgreSQL read-only.
+- [x] Validar tanto SQL determinista de la capa semantica como SQL candidato de
       fallback.
-- [ ] Rechazar tablas internas no autorizadas y schema crudo fuera del contrato.
-- [ ] Emitir errores o aclaraciones cuando una pregunta no pueda resolverse de forma
+- [x] Rechazar tablas internas no autorizadas y schema crudo fuera del contrato.
+- [x] Emitir errores o aclaraciones cuando una pregunta no pueda resolverse de forma
       segura.
 
 ## Fase 6: Chat Orchestrator Y Artefactos

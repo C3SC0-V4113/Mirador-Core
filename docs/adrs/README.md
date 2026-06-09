@@ -13,3 +13,5 @@ Las decisiones de arquitectura de `mirador-core` viven en esta carpeta.
 ## Indice
 
 - [ADR 0001: Adopt Fastify TypeScript Core Foundation](0001-adopt-fastify-typescript-core-foundation.md)
+- [ADR 0002: Adopt Local Postgres, CEO Auth, Semantic Catalog And SQL Safety](0002-adopt-local-postgres-auth-semantic-catalog-and-sql-safety.md)
+- [ADR 0003: Decouple Role And Extension Provisioning From The Schema Migration](0003-decouple-role-and-extension-provisioning-from-schema-migration.md)

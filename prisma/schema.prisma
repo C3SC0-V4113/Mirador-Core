@@ -4,12 +4,229 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CEO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+}
+
+enum InvoiceStatus {
+  PAID
+  OPEN
+  OVERDUE
+  VOID
+}
+
+enum OpportunityStage {
+  PROSPECTING
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  AT_RISK
+  COMPLETED
+  CANCELED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum ExpenseArea {
+  ENGINEERING
+  SALES
+  MARKETING
+  SUPPORT
+  OPERATIONS
+  ADMIN
+}
+
+model User {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String         @unique
+  role          UserRole       @default(CEO)
+  passwordHash  String         @map("password_hash")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sessions      Session[]
+  conversations Conversation[]
+
+  @@map("users")
+}
+
+model Session {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenFamilyId String    @map("token_family_id") @db.Uuid
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenFamilyId])
+  @@map("sessions")
 }
 
 model Conversation {
-  id        String   @id @default(uuid())
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
   title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("conversations")
+}
+
+model Customer {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId    String             @unique @map("external_id")
+  name          String
+  segment       String
+  industry      String
+  healthScore   Int                @map("health_score")
+  riskLevel     String             @map("risk_level")
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  subscriptions Subscription[]
+  invoices      Invoice[]
+  opportunities SalesOpportunity[]
+  projects      Project[]
+  tickets       SupportTicket[]
+
+  @@map("customers")
+}
+
+model Subscription {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId    String             @unique @map("external_id")
+  customerId    String             @map("customer_id") @db.Uuid
+  planName      String             @map("plan_name")
+  status        SubscriptionStatus
+  monthlyAmount Decimal            @map("monthly_amount") @db.Decimal(12, 2)
+  startedAt     DateTime           @map("started_at") @db.Date
+  endedAt       DateTime?          @map("ended_at") @db.Date
+  customer      Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId  String        @unique @map("external_id")
+  customerId  String        @map("customer_id") @db.Uuid
+  invoiceDate DateTime      @map("invoice_date") @db.Date
+  dueDate     DateTime      @map("due_date") @db.Date
+  paidAt      DateTime?     @map("paid_at") @db.Date
+  amount      Decimal       @db.Decimal(12, 2)
+  status      InvoiceStatus
+  customer    Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([invoiceDate])
+  @@map("invoices")
+}
+
+model SalesOpportunity {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId    String           @unique @map("external_id")
+  customerId    String           @map("customer_id") @db.Uuid
+  name          String
+  stage         OpportunityStage
+  amount        Decimal          @db.Decimal(12, 2)
+  probability   Int
+  expectedClose DateTime         @map("expected_close") @db.Date
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  customer      Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([stage])
+  @@map("sales_opportunities")
+}
+
+model Project {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId    String        @unique @map("external_id")
+  customerId    String        @map("customer_id") @db.Uuid
+  name          String
+  status        ProjectStatus
+  budget        Decimal       @db.Decimal(12, 2)
+  estimatedCost Decimal       @map("estimated_cost") @db.Decimal(12, 2)
+  startDate     DateTime      @map("start_date") @db.Date
+  targetEndDate DateTime      @map("target_end_date") @db.Date
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  timeEntries   TimeEntry[]
+
+  @@index([customerId])
+  @@index([status])
+  @@map("projects")
+}
+
+model TimeEntry {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId String   @unique @map("external_id")
+  projectId  String   @map("project_id") @db.Uuid
+  entryDate  DateTime @map("entry_date") @db.Date
+  role       String
+  hours      Decimal  @db.Decimal(8, 2)
+  costRate   Decimal  @map("cost_rate") @db.Decimal(10, 2)
+  billRate   Decimal  @map("bill_rate") @db.Decimal(10, 2)
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([entryDate])
+  @@map("time_entries")
+}
+
+model SupportTicket {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId  String         @unique @map("external_id")
+  customerId  String         @map("customer_id") @db.Uuid
+  openedAt    DateTime       @map("opened_at") @db.Timestamptz(6)
+  resolvedAt  DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  priority    TicketPriority
+  status      TicketStatus
+  slaBreached Boolean        @default(false) @map("sla_breached")
+  subject     String
+  customer    Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([openedAt])
+  @@map("support_tickets")
+}
+
+model Expense {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId  String      @unique @map("external_id")
+  area        ExpenseArea
+  expenseDate DateTime    @map("expense_date") @db.Date
+  amount      Decimal     @db.Decimal(12, 2)
+  description String
+
+  @@index([expenseDate])
+  @@map("expenses")
 }

@@ -21,6 +21,10 @@ documentales citadas cuando aplique.
 - **PostgreSQL + pgvector**: datos ejecutivos, auditoria y chunks documentales.
 - **Cloudflare R2**: almacenamiento de documentos fuente para RAG.
 
+Para desarrollo local, PostgreSQL corre en Docker Desktop con la imagen
+`pgvector/pgvector:pg17`. Railway sigue siendo el target de despliegue MVP, pero no
+es requisito para ejecutar las Fases 0-5.
+
 ## Rutas del core
 
 Publicas:
@@ -56,3 +60,7 @@ Las rutas internas no deben publicarse como API de browser. Su consumidor espera
 - Allowlist de views, columnas, funciones y limites.
 - Auditoria de prompt, path, `MetricQuery`, SQL validado, documentos recuperados y
   `trace_id`.
+
+La implementacion inicial separa `DATABASE_URL_MIGRATION`, `DATABASE_URL_APP` y
+`DATABASE_URL_READONLY` para mantener la politica read-only verificable desde el
+contrato de entorno.

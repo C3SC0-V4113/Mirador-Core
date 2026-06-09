@@ -1,6 +1,8 @@
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import type { PrismaClient } from '@prisma/client';
 import Fastify from 'fastify';
 
 import { authRoutes } from './modules/auth/auth.routes.js';
@@ -13,7 +15,11 @@ import { registerErrorHandler } from './shared/http/error-handler.js';
 import { requestContextPlugin } from './shared/http/request-context.js';
 import { createLoggerOptions } from './shared/logging/logger.js';
 
-export async function buildApp() {
+export type BuildAppOptions = {
+  prisma?: PrismaClient;
+};
+
+export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: createLoggerOptions(),
   });
@@ -24,7 +30,8 @@ export async function buildApp() {
   await app.register(cors, {
     origin: false,
   });
-  registerPrisma(app);
+  await app.register(cookie);
+  registerPrisma(app, options.prisma);
   await app.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',
