@@ -148,8 +148,10 @@ Fuentes: `proposal.md`, ADR-0005, ADR-0006 y `data-assumptions.md`.
 Fuentes: ADR-0005, `proposal.md`, `data-assumptions.md`, `use-cases.md` y
 `user-challenges.md`.
 
-Entregado como corte vertical del camino de metricas (ver ADR-0004). Lo no
-marcado queda diferido a una segunda iteracion.
+Entregado como corte vertical del camino de metricas (ver ADR-0004). Extendido en
+Fase 6.1 (ver ADR-0005): metrica de ingresos, view `ceo_customer_revenue`, fechas
+relativas via contexto temporal y aclaraciones especificas. Lo no marcado queda
+diferido (comparaciones tipo "mejor mes", multi-paso, graficos de pastel).
 
 - [x] Implementar `POST /api/chat/messages`.
 - [x] Implementar `GET /api/chat/conversations`.

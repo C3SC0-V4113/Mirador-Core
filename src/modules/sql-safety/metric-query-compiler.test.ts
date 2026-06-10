@@ -36,6 +36,18 @@ describe('MetricQuery compiler', () => {
     expect(result.sql).toContain("risk_level = 'high'");
   });
 
+  it('compiles customer_revenue with a customer_name filter over its dedicated view', () => {
+    const { query, metric } = validateMetricQuery({
+      metric: 'customer_revenue',
+      filters: [{ field: 'customer_name', operator: 'eq', value: 'Zenith Finance' }],
+    });
+    const result = compileMetricQuery(query, metric);
+
+    expect(result.sourceViews).toEqual(['ceo_customer_revenue']);
+    expect(result.sql).toContain("customer_name = 'Zenith Finance'");
+    expect(result.sql).toContain('FROM ceo_customer_revenue');
+  });
+
   it('escapes single quotes in string filter values to prevent injection', () => {
     const { query, metric } = validateMetricQuery({
       metric: 'churn_rate',

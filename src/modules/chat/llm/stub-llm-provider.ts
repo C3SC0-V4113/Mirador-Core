@@ -1,19 +1,28 @@
-import type { LlmProvider, MetricCatalogContext, NarrativeInput } from './llm-provider.js';
+import type {
+  LlmProvider,
+  MetricCatalogContext,
+  MetricPlan,
+  NarrativeInput,
+} from './llm-provider.js';
 
 // Proveedor determinista sin red. Mapea la pregunta a una metrica del catalogo por
 // coincidencia de nombre, etiqueta o sinonimo. Se usa en tests y como fallback
-// cuando no hay proveedor LLM configurado.
+// cuando no hay proveedor LLM configurado. Ignora el contexto temporal.
 export function createStubLlmProvider(): LlmProvider {
   return {
-    planMetricQuery(prompt, catalogContext) {
+    planMetricQuery(prompt, catalogContext): Promise<MetricPlan> {
       const normalized = prompt.toLowerCase();
       const match = findMetric(normalized, catalogContext);
 
       if (match === undefined) {
-        return Promise.resolve(null);
+        return Promise.resolve({
+          kind: 'clarify',
+          message:
+            'No pude asociar tu pregunta a una métrica del catálogo. ¿Puedes precisar la métrica o el periodo?',
+        });
       }
 
-      return Promise.resolve({ metric: match });
+      return Promise.resolve({ kind: 'metric', query: { metric: match } });
     },
 
     composeNarrative(input: NarrativeInput) {

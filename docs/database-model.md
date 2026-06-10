@@ -65,6 +65,8 @@ gasto para habilitar preguntas ejecutivas.
 - `ceo_delivery_risk`
 - `ceo_support_health`
 - `ceo_financial_runway`
+- `ceo_customer_revenue`: ingresos facturados por cliente y por mes (habilita la
+  metrica `customer_revenue`).
 
 Estas views son la superficie permitida para catalogo semantico y fallback SQL.
 El rol `mirador_readonly` recibe `SELECT` sobre estas views, no sobre tablas

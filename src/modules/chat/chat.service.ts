@@ -9,9 +9,52 @@ import { compileMetricQuery } from '../sql-safety/metric-query-compiler.js';
 import type { ReadonlyQueryResult } from '../sql-safety/readonly-query.service.js';
 import type { ChatRepository } from './chat.repositories.js';
 import { SUGGESTED_QUESTIONS, type IntentModeInput, toPrismaIntentMode } from './chat.schemas.js';
-import type { LlmProvider } from './llm/llm-provider.js';
+import type { LlmProvider, TemporalContext } from './llm/llm-provider.js';
 
 export type RunReadonlyQuery = (sql: string) => Promise<ReadonlyQueryResult>;
+
+// La cobertura temporal de los datos es estatica en el MVP; se cachea por proceso.
+let cachedPeriodCoverage:
+  | { earliestPeriod: string | null; latestPeriod: string | null }
+  | undefined;
+
+async function getTemporalContext(runQuery: RunReadonlyQuery): Promise<TemporalContext> {
+  cachedPeriodCoverage ??= await loadPeriodCoverage(runQuery);
+
+  return {
+    today: new Date().toISOString().slice(0, 10),
+    earliestPeriod: cachedPeriodCoverage.earliestPeriod,
+    latestPeriod: cachedPeriodCoverage.latestPeriod,
+  };
+}
+
+async function loadPeriodCoverage(runQuery: RunReadonlyQuery) {
+  try {
+    const result = await runQuery(
+      'SELECT min(period_month) AS earliest, max(period_month) AS latest FROM ceo_revenue_summary',
+    );
+    const row = result.rows[0] as { earliest?: unknown; latest?: unknown } | undefined;
+
+    return {
+      earliestPeriod: toIsoDate(row?.earliest),
+      latestPeriod: toIsoDate(row?.latest),
+    };
+  } catch {
+    return { earliestPeriod: null, latestPeriod: null };
+  }
+}
+
+function toIsoDate(value: unknown): string | null {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === 'string' && value !== '') {
+    return value.slice(0, 10);
+  }
+
+  return null;
+}
 
 export type ChatServiceDeps = {
   repository: ChatRepository;
@@ -70,20 +113,30 @@ export async function handleChatMessage(
   });
 
   const catalogContext = buildMetricCatalogContext();
+  const temporalContext = await getTemporalContext(deps.runQuery);
 
   let plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition };
 
   try {
-    const candidate = await deps.llm.planMetricQuery(input.message, catalogContext);
+    const metricPlan = await deps.llm.planMetricQuery(
+      input.message,
+      catalogContext,
+      temporalContext,
+    );
 
-    if (candidate === null) {
-      throw new Error('No metric resolved.');
+    if (metricPlan.kind === 'clarify') {
+      return await respondClarification(
+        deps,
+        conversationId,
+        input,
+        intentMode,
+        metricPlan.message,
+      );
     }
 
-    plan = validateMetricQuery(candidate);
+    plan = validateMetricQuery(metricPlan.query);
   } catch {
-    // Cubre tanto "ninguna metrica resuelta" como errores del proveedor LLM o de
-    // validacion: en todos los casos respondemos con una aclaracion, no con 500.
+    // Errores del proveedor LLM o de validacion: aclaracion, no 500.
     return respondClarification(deps, conversationId, input, intentMode);
   }
 
@@ -147,8 +200,10 @@ async function respondClarification(
   conversationId: string,
   input: HandleChatInput,
   intentMode: ReturnType<typeof toPrismaIntentMode>,
+  message?: string,
 ): Promise<ChatResponse> {
   const text =
+    message ??
     'No pude asociar tu pregunta a una métrica del catálogo. ¿Puedes precisar la métrica o el periodo?';
 
   const assistantMessage = await deps.repository.insertMessage({
@@ -207,11 +262,29 @@ async function composeNarrativeSafe(
       metricLabel: plan.metric.label,
       format: plan.metric.format,
       rows,
+      context: describeQueryContext(plan.query),
     });
   } catch {
     // Si la narrativa LLM falla, no perdemos los datos ya calculados.
     return `${plan.metric.label}: ${String(rows.length)} registro(s) recuperados.`;
   }
+}
+
+// Resume filtros y periodo aplicados para que la narrativa conozca el sujeto
+// (p.ej. un cliente filtrado) aunque no este en las columnas proyectadas.
+function describeQueryContext(query: ReturnType<typeof validateMetricQuery>['query']): string {
+  const parts: string[] = [];
+
+  for (const filter of query.filters) {
+    const value = Array.isArray(filter.value) ? filter.value.join(', ') : String(filter.value);
+    parts.push(`${filter.field} ${filter.operator} ${value}`);
+  }
+
+  if (query.time_range !== undefined) {
+    parts.push(`periodo ${query.time_range.from}..${query.time_range.to}`);
+  }
+
+  return parts.join('; ');
 }
 
 function pickArtifactType(metric: MetricDefinition, rows: unknown[]): ArtifactType {

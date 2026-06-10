@@ -88,4 +88,25 @@ describe('chat orchestrator', () => {
     expect(response.warnings).toContain('metric_not_resolved');
     expect(artifacts[0]?.artifactType).toBe('TEXT');
   });
+
+  it('surfaces a specific clarification message from the planner', async () => {
+    const { repository } = createFakeRepository();
+    const specific = 'Puedo darte ingresos por mes, pero aún no comparo contra el mejor mes.';
+
+    const response = await handleChatMessage(
+      {
+        repository,
+        llm: {
+          planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: specific }),
+          composeNarrative: () => Promise.resolve(''),
+        },
+        runQuery: runQueryStub,
+      },
+      { userId: 'user-1', message: 'ventas vs mejor mes', traceId: 'trace-clarify' },
+    );
+
+    expect(response.metadata.metric).toBeNull();
+    expect(response.message).toBe(specific);
+    expect(response.artifacts[0]?.summary).toBe(specific);
+  });
 });

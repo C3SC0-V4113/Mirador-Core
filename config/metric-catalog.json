@@ -1,12 +1,58 @@
 {
-  "version": "2026-06-mvp",
+  "version": "2026-06-mvp.2",
   "role": "CEO",
   "metrics": [
+    {
+      "name": "revenue",
+      "label": "Ingresos",
+      "description": "Ingresos facturados por mes (PAID, OPEN y OVERDUE).",
+      "synonyms": [
+        "ingresos",
+        "ventas",
+        "facturacion",
+        "facturación",
+        "revenue",
+        "ingresos totales",
+        "ingresos del periodo"
+      ],
+      "grain": "month",
+      "source_view": "ceo_revenue_summary",
+      "measure": "revenue",
+      "dimensions": ["period_month"],
+      "filters_allowed": ["period_month"],
+      "time_column": "period_month",
+      "format": "currency_usd",
+      "default_chart": "bar"
+    },
+    {
+      "name": "customer_revenue",
+      "label": "Ingresos por Cliente",
+      "description": "Ingresos facturados por cliente y por mes.",
+      "synonyms": [
+        "ingresos por cliente",
+        "ventas por cliente",
+        "facturacion por cliente",
+        "ingresos de un cliente",
+        "revenue por cliente"
+      ],
+      "grain": "customer_month",
+      "source_view": "ceo_customer_revenue",
+      "measure": "revenue",
+      "dimensions": ["period_month", "customer_name", "segment", "risk_level"],
+      "filters_allowed": ["period_month", "customer_name", "segment", "risk_level"],
+      "time_column": "period_month",
+      "format": "currency_usd",
+      "default_chart": "bar"
+    },
     {
       "name": "mrr",
       "label": "MRR",
       "description": "Monthly recurring revenue from active subscriptions.",
-      "synonyms": ["monthly recurring revenue", "revenue mensual recurrente"],
+      "synonyms": [
+        "monthly recurring revenue",
+        "revenue mensual recurrente",
+        "ingresos recurrentes mensuales"
+      ],
       "grain": "month",
       "source_view": "ceo_revenue_summary",
       "measure": "mrr",
@@ -20,7 +66,11 @@
       "name": "arr",
       "label": "ARR",
       "description": "Annualized recurring revenue from current MRR.",
-      "synonyms": ["annual recurring revenue", "revenue anual recurrente"],
+      "synonyms": [
+        "annual recurring revenue",
+        "revenue anual recurrente",
+        "ingresos recurrentes anuales"
+      ],
       "grain": "month",
       "source_view": "ceo_revenue_summary",
       "measure": "arr",

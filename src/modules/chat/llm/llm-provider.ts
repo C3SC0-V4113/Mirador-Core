@@ -5,21 +5,32 @@ import { createStubLlmProvider } from './stub-llm-provider.js';
 
 export type MetricCatalogContext = ReturnType<typeof buildMetricCatalogContext>;
 
+export type TemporalContext = {
+  today: string;
+  earliestPeriod: string | null;
+  latestPeriod: string | null;
+};
+
 export type NarrativeInput = {
   question: string;
   metricLabel: string;
   format: string;
   rows: unknown[];
+  context: string;
 };
 
-// El planificador devuelve un candidato de MetricQuery (sin validar) o null cuando
-// la pregunta no mapea a ninguna metrica del catalogo. La validacion estricta vive
-// en validateMetricQuery, aguas abajo.
+// El planner devuelve un candidato de MetricQuery (a validar aguas abajo) cuando
+// la pregunta mapea a una metrica, o una aclaracion especifica cuando no.
+export type MetricPlan =
+  | { kind: 'metric'; query: Record<string, unknown> }
+  | { kind: 'clarify'; message: string };
+
 export type LlmProvider = {
   planMetricQuery(
     prompt: string,
     catalogContext: MetricCatalogContext,
-  ): Promise<Record<string, unknown> | null>;
+    temporalContext: TemporalContext,
+  ): Promise<MetricPlan>;
   composeNarrative(input: NarrativeInput): Promise<string>;
 };
 
