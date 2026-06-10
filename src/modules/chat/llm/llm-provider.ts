@@ -20,10 +20,12 @@ export type NarrativeInput = {
 };
 
 // El planner devuelve un candidato de MetricQuery (a validar aguas abajo) cuando
-// la pregunta mapea a una metrica, o una aclaracion especifica cuando no.
+// la pregunta mapea a una metrica, una aclaracion especifica cuando no, o una
+// respuesta conversacional para saludos/presentaciones/preguntas no comerciales.
 export type MetricPlan =
   | { kind: 'metric'; query: Record<string, unknown> }
-  | { kind: 'clarify'; message: string };
+  | { kind: 'clarify'; message: string }
+  | { kind: 'conversational'; message: string };
 
 export type LlmProvider = {
   planMetricQuery(

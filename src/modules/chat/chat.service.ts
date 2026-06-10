@@ -124,6 +124,16 @@ export async function handleChatMessage(
       temporalContext,
     );
 
+    if (metricPlan.kind === 'conversational') {
+      return await respondConversational(
+        deps,
+        conversationId,
+        input,
+        intentMode,
+        metricPlan.message,
+      );
+    }
+
     if (metricPlan.kind === 'clarify') {
       return await respondClarification(
         deps,
@@ -240,6 +250,57 @@ async function respondClarification(
     ],
     chart: null,
     warnings: ['metric_not_resolved'],
+    suggested_questions: [...SUGGESTED_QUESTIONS],
+    metadata: {
+      metric: null,
+      source_views: [],
+      validated_sql: null,
+      intent_mode: input.intentMode ?? null,
+    },
+  };
+}
+
+async function respondConversational(
+  deps: ChatServiceDeps,
+  conversationId: string,
+  input: HandleChatInput,
+  intentMode: ReturnType<typeof toPrismaIntentMode>,
+  message: string,
+): Promise<ChatResponse> {
+  const assistantMessage = await deps.repository.insertMessage({
+    conversationId,
+    role: 'ASSISTANT',
+    content: message,
+    intentMode,
+    traceId: input.traceId,
+  });
+
+  await deps.repository.insertArtifact({
+    conversationId,
+    messageId: assistantMessage.id,
+    artifactType: 'TEXT',
+    question: input.message,
+    period: null,
+    sourceViews: [],
+    validatedSql: null,
+    summary: message,
+    payload: { conversational: true },
+    chartSpec: null,
+    freshness: null,
+    warnings: [],
+    traceId: input.traceId,
+  });
+
+  return {
+    trace_id: input.traceId,
+    conversation_id: conversationId,
+    message,
+    data: [],
+    artifacts: [
+      { type: 'TEXT', summary: message, payload: { conversational: true }, chart_spec: null },
+    ],
+    chart: null,
+    warnings: [],
     suggested_questions: [...SUGGESTED_QUESTIONS],
     metadata: {
       metric: null,
