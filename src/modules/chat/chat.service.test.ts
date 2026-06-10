@@ -8,6 +8,7 @@ import type {
   InsertMessageInput,
 } from './chat.repositories.js';
 import { handleChatMessage, type RunReadonlyQuery } from './chat.service.js';
+import type { ChatHistoryMessage, LlmProvider } from './llm/llm-provider.js';
 import { createStubLlmProvider } from './llm/stub-llm-provider.js';
 
 function createFakeRepository() {
@@ -28,8 +29,12 @@ function createFakeRepository() {
       artifacts.push(input);
       return Promise.resolve({ id: `artifact-${String(artifacts.length)}` });
     },
-    listRecentMessages(): Promise<{ role: 'USER' | 'ASSISTANT'; content: string }[]> {
-      return Promise.resolve([]);
+    listRecentMessages() {
+      // Refleja los mensajes insertados hasta el momento (orden cronologico),
+      // como lo haria la DB, para poder validar el manejo del historial.
+      return Promise.resolve(
+        messages.map((message) => ({ role: message.role, content: message.content })),
+      );
     },
     listConversations(): Promise<ConversationSummary[]> {
       return Promise.resolve([]);
@@ -96,25 +101,83 @@ describe('chat orchestrator', () => {
     const { repository } = createFakeRepository();
     const specific = 'Puedo darte ingresos por mes, pero aún no comparo contra el mejor mes.';
 
+    const llm: LlmProvider = {
+      planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: specific }),
+      composeNarrative: () => Promise.resolve(''),
+    };
+
     const response = await handleChatMessage(
-      {
-        repository,
-        llm: {
-          planMetricQuery: (
-            _prompt: string,
-            _catalog: unknown,
-            _temporal: unknown,
-            _history?: unknown[],
-          ) => Promise.resolve({ kind: 'clarify', message: specific } as never),
-          composeNarrative: () => Promise.resolve(''),
-        },
-        runQuery: runQueryStub,
-      },
+      { repository, llm, runQuery: runQueryStub },
       { userId: 'user-1', message: 'ventas vs mejor mes', traceId: 'trace-clarify' },
     );
 
     expect(response.metadata.metric).toBeNull();
     expect(response.message).toBe(specific);
     expect(response.artifacts[0]?.summary).toBe(specific);
+  });
+
+  it('returns a conversational reply without warnings', async () => {
+    const { repository, artifacts } = createFakeRepository();
+    const greeting = '¡Hola! ¿En qué puedo ayudarte hoy?';
+
+    const llm: LlmProvider = {
+      planMetricQuery: () => Promise.resolve({ kind: 'conversational', message: greeting }),
+      composeNarrative: () => Promise.resolve(''),
+    };
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub },
+      { userId: 'user-1', message: 'hola', traceId: 'trace-greet' },
+    );
+
+    expect(response.metadata.metric).toBeNull();
+    expect(response.message).toBe(greeting);
+    expect(response.warnings).toEqual([]);
+    expect(artifacts[0]?.artifactType).toBe('TEXT');
+    expect(artifacts[0]?.payload).toMatchObject({ conversational: true });
+  });
+
+  it('passes prior turns as history without duplicating the current message', async () => {
+    const { repository } = createFakeRepository();
+
+    await repository.insertMessage({
+      conversationId: 'conversation-1',
+      role: 'USER',
+      content: 'hola',
+      intentMode: null,
+      traceId: 'trace-0',
+    });
+    await repository.insertMessage({
+      conversationId: 'conversation-1',
+      role: 'ASSISTANT',
+      content: '¡Hola! ¿En qué te ayudo?',
+      intentMode: null,
+      traceId: 'trace-0',
+    });
+
+    let capturedHistory: ChatHistoryMessage[] | undefined;
+    const llm: LlmProvider = {
+      planMetricQuery: (_prompt, _catalog, _temporal, history) => {
+        capturedHistory = history;
+        return Promise.resolve({ kind: 'conversational', message: 'De nada.' });
+      },
+      composeNarrative: () => Promise.resolve(''),
+    };
+
+    await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub },
+      {
+        userId: 'user-1',
+        conversationId: 'conversation-1',
+        message: 'gracias',
+        traceId: 'trace-1',
+      },
+    );
+
+    expect(capturedHistory).toEqual([
+      { role: 'USER', content: 'hola' },
+      { role: 'ASSISTANT', content: '¡Hola! ¿En qué te ayudo?' },
+    ]);
+    expect(capturedHistory?.some((message) => message.content === 'gracias')).toBe(false);
   });
 });

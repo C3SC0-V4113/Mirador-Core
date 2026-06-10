@@ -106,12 +106,17 @@ export function createChatRepository(prisma: PrismaClient): ChatRepository {
     },
 
     async listRecentMessages(conversationId, take = 5) {
-      return prisma.chatMessage.findMany({
+      // Traemos los mas recientes (desc) y los devolvemos en orden cronologico
+      // para el prompt. Con 'asc' + take se obtenian los mas ANTIGUOS, que es lo
+      // contrario a "memoria reciente".
+      const rows = await prisma.chatMessage.findMany({
         where: { conversationId },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'desc' },
         take,
         select: { role: true, content: true },
       });
+
+      return rows.reverse();
     },
 
     async listConversations(userId) {

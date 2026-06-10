@@ -104,6 +104,12 @@ export async function handleChatMessage(
     input.conversationId,
   );
 
+  const catalogContext = buildMetricCatalogContext();
+  const temporalContext = await getTemporalContext(deps.runQuery);
+  // Historial = turnos PREVIOS. Se lee antes de insertar el mensaje actual para
+  // no duplicarlo (el mensaje actual se anexa una sola vez, ya delimitado).
+  const recentMessages = await deps.repository.listRecentMessages(conversationId);
+
   await deps.repository.insertMessage({
     conversationId,
     role: 'USER',
@@ -111,10 +117,6 @@ export async function handleChatMessage(
     intentMode,
     traceId: input.traceId,
   });
-
-  const catalogContext = buildMetricCatalogContext();
-  const temporalContext = await getTemporalContext(deps.runQuery);
-  const recentMessages = await deps.repository.listRecentMessages(conversationId);
 
   let plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition };
 
@@ -207,68 +209,21 @@ export async function handleChatMessage(
   };
 }
 
-async function respondClarification(
+const DEFAULT_CLARIFICATION =
+  'No pude asociar tu pregunta a una métrica del catálogo. ¿Puedes precisar la métrica o el periodo?';
+
+// Respuesta de solo texto (aclaracion o conversacional): persiste mensaje +
+// artefacto TEXT y arma el payload de respuesta. Unifica ambos caminos no-metrica.
+async function respondText(
   deps: ChatServiceDeps,
   conversationId: string,
   input: HandleChatInput,
   intentMode: ReturnType<typeof toPrismaIntentMode>,
-  message?: string,
+  options: { message: string; payloadKey: 'clarification' | 'conversational'; warnings: string[] },
 ): Promise<ChatResponse> {
-  const text =
-    message ??
-    'No pude asociar tu pregunta a una métrica del catálogo. ¿Puedes precisar la métrica o el periodo?';
+  const { message, payloadKey, warnings } = options;
+  const payload: Prisma.InputJsonValue = { [payloadKey]: true };
 
-  const assistantMessage = await deps.repository.insertMessage({
-    conversationId,
-    role: 'ASSISTANT',
-    content: text,
-    intentMode,
-    traceId: input.traceId,
-  });
-
-  await deps.repository.insertArtifact({
-    conversationId,
-    messageId: assistantMessage.id,
-    artifactType: 'TEXT',
-    question: input.message,
-    period: null,
-    sourceViews: [],
-    validatedSql: null,
-    summary: text,
-    payload: { clarification: true },
-    chartSpec: null,
-    freshness: null,
-    warnings: ['metric_not_resolved'],
-    traceId: input.traceId,
-  });
-
-  return {
-    trace_id: input.traceId,
-    conversation_id: conversationId,
-    message: text,
-    data: [],
-    artifacts: [
-      { type: 'TEXT', summary: text, payload: { clarification: true }, chart_spec: null },
-    ],
-    chart: null,
-    warnings: ['metric_not_resolved'],
-    suggested_questions: [...SUGGESTED_QUESTIONS],
-    metadata: {
-      metric: null,
-      source_views: [],
-      validated_sql: null,
-      intent_mode: input.intentMode ?? null,
-    },
-  };
-}
-
-async function respondConversational(
-  deps: ChatServiceDeps,
-  conversationId: string,
-  input: HandleChatInput,
-  intentMode: ReturnType<typeof toPrismaIntentMode>,
-  message: string,
-): Promise<ChatResponse> {
   const assistantMessage = await deps.repository.insertMessage({
     conversationId,
     role: 'ASSISTANT',
@@ -286,10 +241,10 @@ async function respondConversational(
     sourceViews: [],
     validatedSql: null,
     summary: message,
-    payload: { conversational: true },
+    payload,
     chartSpec: null,
     freshness: null,
-    warnings: [],
+    warnings,
     traceId: input.traceId,
   });
 
@@ -298,11 +253,9 @@ async function respondConversational(
     conversation_id: conversationId,
     message,
     data: [],
-    artifacts: [
-      { type: 'TEXT', summary: message, payload: { conversational: true }, chart_spec: null },
-    ],
+    artifacts: [{ type: 'TEXT', summary: message, payload, chart_spec: null }],
     chart: null,
-    warnings: [],
+    warnings,
     suggested_questions: [...SUGGESTED_QUESTIONS],
     metadata: {
       metric: null,
@@ -311,6 +264,34 @@ async function respondConversational(
       intent_mode: input.intentMode ?? null,
     },
   };
+}
+
+function respondClarification(
+  deps: ChatServiceDeps,
+  conversationId: string,
+  input: HandleChatInput,
+  intentMode: ReturnType<typeof toPrismaIntentMode>,
+  message?: string,
+): Promise<ChatResponse> {
+  return respondText(deps, conversationId, input, intentMode, {
+    message: message ?? DEFAULT_CLARIFICATION,
+    payloadKey: 'clarification',
+    warnings: ['metric_not_resolved'],
+  });
+}
+
+function respondConversational(
+  deps: ChatServiceDeps,
+  conversationId: string,
+  input: HandleChatInput,
+  intentMode: ReturnType<typeof toPrismaIntentMode>,
+  message: string,
+): Promise<ChatResponse> {
+  return respondText(deps, conversationId, input, intentMode, {
+    message,
+    payloadKey: 'conversational',
+    warnings: [],
+  });
 }
 
 async function composeNarrativeSafe(
