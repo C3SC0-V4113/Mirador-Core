@@ -19,6 +19,8 @@ export type NarrativeInput = {
   context: string;
 };
 
+export type ChatHistoryMessage = { role: 'USER' | 'ASSISTANT'; content: string };
+
 // El planner devuelve un candidato de MetricQuery (a validar aguas abajo) cuando
 // la pregunta mapea a una metrica, una aclaracion especifica cuando no, o una
 // respuesta conversacional para saludos/presentaciones/preguntas no comerciales.
@@ -32,6 +34,7 @@ export type LlmProvider = {
     prompt: string,
     catalogContext: MetricCatalogContext,
     temporalContext: TemporalContext,
+    conversationHistory?: ChatHistoryMessage[],
   ): Promise<MetricPlan>;
   composeNarrative(input: NarrativeInput): Promise<string>;
 };

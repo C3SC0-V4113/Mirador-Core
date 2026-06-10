@@ -114,6 +114,7 @@ export async function handleChatMessage(
 
   const catalogContext = buildMetricCatalogContext();
   const temporalContext = await getTemporalContext(deps.runQuery);
+  const recentMessages = await deps.repository.listRecentMessages(conversationId);
 
   let plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition };
 
@@ -122,6 +123,7 @@ export async function handleChatMessage(
       input.message,
       catalogContext,
       temporalContext,
+      recentMessages,
     );
 
     if (metricPlan.kind === 'conversational') {

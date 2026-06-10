@@ -28,6 +28,9 @@ function createFakeRepository() {
       artifacts.push(input);
       return Promise.resolve({ id: `artifact-${String(artifacts.length)}` });
     },
+    listRecentMessages(): Promise<{ role: 'USER' | 'ASSISTANT'; content: string }[]> {
+      return Promise.resolve([]);
+    },
     listConversations(): Promise<ConversationSummary[]> {
       return Promise.resolve([]);
     },
@@ -97,7 +100,12 @@ describe('chat orchestrator', () => {
       {
         repository,
         llm: {
-          planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: specific }),
+          planMetricQuery: (
+            _prompt: string,
+            _catalog: unknown,
+            _temporal: unknown,
+            _history?: unknown[],
+          ) => Promise.resolve({ kind: 'clarify', message: specific } as never),
           composeNarrative: () => Promise.resolve(''),
         },
         runQuery: runQueryStub,

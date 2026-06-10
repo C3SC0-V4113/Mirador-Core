@@ -7,10 +7,15 @@ import type {
 
 // Proveedor determinista sin red. Mapea la pregunta a una metrica del catalogo por
 // coincidencia de nombre, etiqueta o sinonimo. Se usa en tests y como fallback
-// cuando no hay proveedor LLM configurado. Ignora el contexto temporal.
+// cuando no hay proveedor LLM configurado. Ignora el contexto temporal y el historial.
 export function createStubLlmProvider(): LlmProvider {
   return {
-    planMetricQuery(prompt, catalogContext): Promise<MetricPlan> {
+    planMetricQuery(
+      prompt,
+      catalogContext,
+      _temporalContext?,
+      _conversationHistory?,
+    ): Promise<MetricPlan> {
       const normalized = prompt.toLowerCase();
       const match = findMetric(normalized, catalogContext);
 

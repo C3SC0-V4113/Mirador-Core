@@ -42,6 +42,10 @@ export type ChatRepository = {
   ensureConversation(userId: string, conversationId: string | undefined): Promise<string>;
   insertMessage(input: InsertMessageInput): Promise<{ id: string }>;
   insertArtifact(input: InsertArtifactInput): Promise<{ id: string }>;
+  listRecentMessages(
+    conversationId: string,
+    take?: number,
+  ): Promise<{ role: ChatRole; content: string }[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
 };
 
@@ -98,6 +102,15 @@ export function createChatRepository(prisma: PrismaClient): ChatRepository {
           traceId: input.traceId,
         },
         select: { id: true },
+      });
+    },
+
+    async listRecentMessages(conversationId, take = 5) {
+      return prisma.chatMessage.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'asc' },
+        take,
+        select: { role: true, content: true },
       });
     },
 
