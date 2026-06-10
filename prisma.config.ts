@@ -10,6 +10,6 @@ export default defineConfig({
       'postgresql://postgres:postgres@localhost:5432/mirador_core',
   },
   migrations: {
-    seed: 'tsx prisma/seed.ts',
+    seed: 'tsx prisma/seed/index.ts',
   },
 });
