@@ -48,6 +48,24 @@ describe('MetricQuery compiler', () => {
     expect(result.sql).toContain('FROM ceo_customer_revenue');
   });
 
+  it('compiles the projects metric over its dedicated view with customer and status filters', () => {
+    const { query, metric } = validateMetricQuery({
+      metric: 'projects',
+      dimensions: ['project_name', 'customer_name', 'status'],
+      filters: [
+        { field: 'customer_name', operator: 'eq', value: 'Apex Manufacturing' },
+        { field: 'status', operator: 'eq', value: 'active' },
+      ],
+    });
+    const result = compileMetricQuery(query, metric);
+
+    expect(result.sourceViews).toEqual(['ceo_delivery_risk']);
+    expect(result.sql).toContain('FROM ceo_delivery_risk');
+    expect(result.sql).toContain("customer_name = 'Apex Manufacturing'");
+    expect(result.sql).toContain("status = 'active'");
+    expect(result.sql).toContain('ORDER BY target_end_date');
+  });
+
   it('escapes single quotes in string filter values to prevent injection', () => {
     const { query, metric } = validateMetricQuery({
       metric: 'churn_rate',

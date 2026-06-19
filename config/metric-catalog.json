@@ -193,6 +193,28 @@
       "default_chart": "bar"
     },
     {
+      "name": "projects",
+      "label": "Proyectos",
+      "description": "Listado de todos los proyectos con estado, riesgo y cliente asociado.",
+      "synonyms": [
+        "proyectos",
+        "lista de proyectos",
+        "todos los proyectos",
+        "proyectos activos",
+        "proyectos de la empresa",
+        "project list",
+        "active projects"
+      ],
+      "grain": "project",
+      "source_view": "ceo_delivery_risk",
+      "measure": "hours_logged",
+      "dimensions": ["project_name", "customer_name", "delivery_risk", "status"],
+      "filters_allowed": ["delivery_risk", "status", "customer_name", "target_end_date"],
+      "time_column": "target_end_date",
+      "format": "integer",
+      "default_chart": "table"
+    },
+    {
       "name": "critical_tickets",
       "label": "Critical Tickets",
       "description": "Critical and high priority support ticket volume.",

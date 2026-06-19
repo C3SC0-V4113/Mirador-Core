@@ -68,6 +68,7 @@ describe('schema catalog', () => {
         'close_forecast',
         'projects_at_risk',
         'project_margin',
+        'projects',
         'critical_tickets',
         'sla_breaches',
         'burn_rate',
