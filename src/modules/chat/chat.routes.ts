@@ -1,12 +1,15 @@
 import type { FastifyPluginCallback } from 'fastify';
+import { z } from 'zod';
 
 import { AppError } from '../../shared/errors/app-error.js';
 import { runReadonlyQuery } from '../sql-safety/readonly-query.service.js';
 import { requireCeo } from '../auth/auth.guard.js';
 import { createChatRepository } from './chat.repositories.js';
-import { chatMessageBodySchema } from './chat.schemas.js';
-import { handleChatMessage } from './chat.service.js';
+import { chartEditBodySchema, chatMessageBodySchema } from './chat.schemas.js';
+import { editArtifactVisualization, handleChatMessage } from './chat.service.js';
 import { createLlmProvider } from './llm/llm-provider.js';
+
+const artifactParamsSchema = z.object({ artifactId: z.uuid() });
 
 export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
   app.post('/api/chat/messages', { preHandler: requireCeo }, async (request, reply) => {
@@ -43,6 +46,33 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
 
     return reply.send({ conversations });
   });
+
+  // Mini-chat de gráficas: edita la visualización de un artefacto ya generado.
+  app.post(
+    '/api/chat/artifacts/:artifactId/visualization',
+    { preHandler: requireCeo },
+    async (request, reply) => {
+      if (request.currentUser === undefined) {
+        throw new AppError('Authentication required.', 401, 'AUTH_UNAUTHORIZED');
+      }
+
+      const params = artifactParamsSchema.parse(request.params);
+      const body = chartEditBodySchema.parse(request.body);
+      const response = await editArtifactVisualization(
+        {
+          repository: createChatRepository(app.prisma),
+          llm: createLlmProvider(),
+        },
+        {
+          userId: request.currentUser.id,
+          artifactId: params.artifactId,
+          message: body.message,
+        },
+      );
+
+      return reply.send(response);
+    },
+  );
 
   done();
 };

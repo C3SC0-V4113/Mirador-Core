@@ -148,21 +148,20 @@ Fuentes: `proposal.md`, ADR-0005, ADR-0006 y `data-assumptions.md`.
 Fuentes: ADR-0005, `proposal.md`, `data-assumptions.md`, `use-cases.md` y
 `user-challenges.md`.
 
-Entregado como corte vertical del camino de metricas (ver ADR-0004). Extendido en
-Fase 6.1 (ver ADR-0005): metrica de ingresos, view `ceo_customer_revenue`, fechas
-relativas via contexto temporal y aclaraciones especificas. Lo no marcado queda
-diferido (comparaciones tipo "mejor mes", multi-paso, graficos de pastel).
+Entregado como corte vertical (ADR-0004), extendido en Fase 6.1 (ADR-0005:
+ingresos, `ceo_customer_revenue`, fechas relativas, aclaraciones) y completado en
+Fase 6.2 (ADR-0006: intent_mode, artefactos report/action_plan, mini-chat de
+graficas). Fuera de alcance MVP: comparaciones tipo "mejor mes" y preguntas
+multi-paso (se responden con aclaracion).
 
 - [x] Implementar `POST /api/chat/messages`.
 - [x] Implementar `GET /api/chat/conversations`.
 - [x] Persistir `conversations` y `chat_messages`.
-- [~] Soportar `intent_mode`: `responder`, `analizar`, `reporte_visual`, `plan`.
-  (Se acepta y persiste el modo; el comportamiento diferenciado queda diferido.)
-- [ ] Combinar requisitos del modo con requisitos explicitos del prompt; el modo no
-      debe descartar lo pedido por el usuario.
-- [~] Guiar el chat con preguntas sugeridas, acciones rapidas y aclaraciones.
-  (Preguntas sugeridas y aclaracion ante metrica no resuelta; acciones rapidas
-  diferidas.)
+- [x] Soportar `intent_mode`: `responder`, `analizar`, `reporte_visual`, `plan`.
+- [x] Combinar requisitos del modo con requisitos explicitos del prompt; el modo no
+      descarta lo pedido (la metrica sale del prompt, el modo moldea la salida).
+- [x] Guiar el chat con preguntas sugeridas, acciones rapidas (`quick_actions`) y
+      aclaraciones.
 - [x] Incluir preguntas sugeridas base: cambio del ultimo periodo, proyectos que
       requieren atencion, clientes en riesgo, variacion de MRR y tickets criticos.
 - [x] Devolver narrativa ejecutiva, `data`, `artifacts`, `chart`, `warnings`,
@@ -170,12 +169,11 @@ diferido (comparaciones tipo "mejor mes", multi-paso, graficos de pastel).
 - [x] Persistir `chat_artifacts` con `artifact_type`, pregunta, periodo,
       `source_views`, `validated_sql`, `summary`, `payload`, `chart_spec`,
       `freshness`, `warnings` y `trace_id`.
-- [~] Soportar artefactos `text`, `table`, `kpi`, `chart`, `report` y
-  `action_plan`. (Implementados `text`, `table`, `kpi` y `chart`;
-  `report` y `action_plan` diferidos.)
-- [ ] Implementar mini chat contextual para editar `chart_spec` de graficas ya
+- [x] Soportar artefactos `text`, `table`, `kpi`, `chart`, `report` y
+      `action_plan`.
+- [x] Implementar mini chat contextual para editar `chart_spec` de graficas ya
       generadas.
-- [ ] Evitar nueva query cuando la edicion solo cambie visualizacion; derivar al chat
+- [x] Evitar nueva query cuando la edicion solo cambie visualizacion; derivar al chat
       principal cuando cambien datos, periodo, metrica o fuente.
 
 ## Fase 7: RAG Y Orquestacion Multi-Intencion

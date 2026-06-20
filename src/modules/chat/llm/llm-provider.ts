@@ -1,5 +1,6 @@
 import { env } from '../../../config/env.js';
 import type { buildMetricCatalogContext } from '../../schema-catalog/metric-catalog.js';
+import type { IntentModeInput } from '../chat.schemas.js';
 import { createOpenAiLlmProvider } from './openai-llm-provider.js';
 import { createStubLlmProvider } from './stub-llm-provider.js';
 
@@ -17,7 +18,29 @@ export type NarrativeInput = {
   format: string;
   rows: unknown[];
   context: string;
+  intentMode?: IntentModeInput;
 };
+
+export type PlanInput = {
+  question: string;
+  metricLabel: string;
+  rows: unknown[];
+  context: string;
+};
+
+export type PlanAction = { title: string; detail: string };
+
+export type ChartSpec = { type: string; x: string | null; y: string };
+
+export type ChartEditInput = {
+  message: string;
+  currentChartSpec: unknown;
+  availableColumns: string[];
+};
+
+export type ChartEditResult =
+  | { kind: 'visual'; chartSpec: ChartSpec }
+  | { kind: 'route_to_main'; reason: string };
 
 export type ChatHistoryMessage = { role: 'USER' | 'ASSISTANT'; content: string };
 
@@ -37,6 +60,8 @@ export type LlmProvider = {
     conversationHistory?: ChatHistoryMessage[],
   ): Promise<MetricPlan>;
   composeNarrative(input: NarrativeInput): Promise<string>;
+  composePlan(input: PlanInput): Promise<PlanAction[]>;
+  editChartSpec(input: ChartEditInput): Promise<ChartEditResult>;
 };
 
 export function createLlmProvider(): LlmProvider {

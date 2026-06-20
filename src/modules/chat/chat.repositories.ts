@@ -38,6 +38,14 @@ export type ConversationSummary = {
   lastMessage: string | null;
 };
 
+export type ArtifactRecord = {
+  id: string;
+  artifactType: ArtifactType;
+  chartSpec: unknown;
+  payload: unknown;
+  sourceViews: string[];
+};
+
 export type ChatRepository = {
   ensureConversation(userId: string, conversationId: string | undefined): Promise<string>;
   insertMessage(input: InsertMessageInput): Promise<{ id: string }>;
@@ -47,6 +55,8 @@ export type ChatRepository = {
     take?: number,
   ): Promise<{ role: ChatRole; content: string }[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
+  getArtifactForUser(artifactId: string, userId: string): Promise<ArtifactRecord | null>;
+  updateArtifactChartSpec(artifactId: string, chartSpec: Prisma.InputJsonValue): Promise<void>;
 };
 
 export function createChatRepository(prisma: PrismaClient): ChatRepository {
@@ -143,6 +153,28 @@ export function createChatRepository(prisma: PrismaClient): ChatRepository {
         updatedAt: conversation.updatedAt,
         lastMessage: conversation.messages[0]?.content ?? null,
       }));
+    },
+
+    async getArtifactForUser(artifactId, userId) {
+      // El filtro por la relacion conversation.userId garantiza que el CEO solo
+      // puede tocar artefactos de sus propias conversaciones.
+      return prisma.chatArtifact.findFirst({
+        where: { id: artifactId, conversation: { userId } },
+        select: {
+          id: true,
+          artifactType: true,
+          chartSpec: true,
+          payload: true,
+          sourceViews: true,
+        },
+      });
+    },
+
+    async updateArtifactChartSpec(artifactId, chartSpec) {
+      await prisma.chatArtifact.update({
+        where: { id: artifactId },
+        data: { chartSpec },
+      });
     },
   };
 }

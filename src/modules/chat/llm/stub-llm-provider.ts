@@ -1,9 +1,15 @@
 import type {
+  ChartEditInput,
+  ChartEditResult,
   LlmProvider,
   MetricCatalogContext,
   MetricPlan,
   NarrativeInput,
+  PlanInput,
 } from './llm-provider.js';
+
+const VISUAL_CHANGE_PATTERN =
+  /barra|barras|linea|línea|line|pastel|pie|torta|area|área|tabla|table|apilad|stacked|color/iu;
 
 // Proveedor determinista sin red. Mapea la pregunta a una metrica del catalogo por
 // coincidencia de nombre, etiqueta o sinonimo. Se usa en tests y como fallback
@@ -40,6 +46,53 @@ export function createStubLlmProvider(): LlmProvider {
       return Promise.resolve(
         `${input.metricLabel}: ${String(input.rows.length)} registro(s) recuperados para la pregunta "${input.question}".`,
       );
+    },
+
+    composePlan(input: PlanInput) {
+      return Promise.resolve([
+        {
+          title: `Revisar ${input.metricLabel}`,
+          detail: `Analiza los ${String(input.rows.length)} registros recuperados y prioriza los casos extremos.`,
+        },
+        {
+          title: 'Definir responsables',
+          detail: 'Asigna dueños y fechas para las acciones derivadas de la métrica.',
+        },
+      ]);
+    },
+
+    editChartSpec(input: ChartEditInput): Promise<ChartEditResult> {
+      const normalized = input.message.toLowerCase();
+
+      if (!VISUAL_CHANGE_PATTERN.test(normalized)) {
+        return Promise.resolve({
+          kind: 'route_to_main',
+          reason: 'El cambio solicitado afecta datos; usa el chat principal.',
+        });
+      }
+
+      const current =
+        typeof input.currentChartSpec === 'object' && input.currentChartSpec !== null
+          ? (input.currentChartSpec as { x?: unknown; y?: unknown })
+          : {};
+      const type = /barra|barras|stacked|apilad/u.test(normalized)
+        ? 'bar'
+        : /pastel|pie|torta/u.test(normalized)
+          ? 'pie'
+          : /tabla|table/u.test(normalized)
+            ? 'table'
+            : /area|área/u.test(normalized)
+              ? 'area'
+              : 'line';
+
+      return Promise.resolve({
+        kind: 'visual',
+        chartSpec: {
+          type,
+          x: typeof current.x === 'string' ? current.x : null,
+          y: typeof current.y === 'string' ? current.y : (input.availableColumns[0] ?? ''),
+        },
+      });
     },
   };
 }

@@ -1,12 +1,16 @@
 import OpenAI from 'openai';
 
 import { env } from '../../../config/env.js';
+import { VISUALIZATION_CHART_TYPES } from '../chat.schemas.js';
 import type {
+  ChartEditInput,
+  ChartEditResult,
   ChatHistoryMessage,
   LlmProvider,
   MetricCatalogContext,
   MetricPlan,
   NarrativeInput,
+  PlanInput,
   TemporalContext,
 } from './llm-provider.js';
 
@@ -172,6 +176,7 @@ export function createOpenAiLlmProvider(): LlmProvider {
         model: env.LIGHT_MODEL,
         messages: [
           { role: 'system', content: NARRATIVE_SYSTEM_PROMPT },
+          { role: 'system', content: narrativeDepthInstruction(input.intentMode) },
           {
             role: 'user',
             content: `Pregunta: ${input.question}\nMetrica: ${input.metricLabel} (formato ${input.format})\nFiltros y periodo aplicados: ${input.context === '' ? 'ninguno' : input.context}\nDatos (JSON): ${JSON.stringify(input.rows)}`,
@@ -181,7 +186,128 @@ export function createOpenAiLlmProvider(): LlmProvider {
 
       return completion.choices[0]?.message.content ?? '';
     },
+
+    async composePlan(input: PlanInput) {
+      const completion = await client.chat.completions.create({
+        model: env.LIGHT_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: PLAN_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: `Pregunta: ${input.question}\nMetrica: ${input.metricLabel}\nFiltros y periodo: ${input.context === '' ? 'ninguno' : input.context}\nDatos (JSON): ${JSON.stringify(input.rows)}`,
+          },
+        ],
+      });
+
+      const content = completion.choices[0]?.message.content;
+
+      if (content === null || content === '') {
+        return [];
+      }
+
+      const parsed = JSON.parse(content) as { actions?: unknown };
+
+      if (!Array.isArray(parsed.actions)) {
+        return [];
+      }
+
+      return parsed.actions.flatMap((action) => {
+        if (
+          typeof action === 'object' &&
+          action !== null &&
+          typeof (action as { title?: unknown }).title === 'string' &&
+          typeof (action as { detail?: unknown }).detail === 'string'
+        ) {
+          const typed = action as { title: string; detail: string };
+          return [{ title: typed.title, detail: typed.detail }];
+        }
+
+        return [];
+      });
+    },
+
+    async editChartSpec(input: ChartEditInput): Promise<ChartEditResult> {
+      const completion = await client.chat.completions.create({
+        model: env.LIGHT_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: chartEditSystemPrompt(input.availableColumns) },
+          {
+            role: 'system',
+            content: `chart_spec actual (JSON): ${JSON.stringify(input.currentChartSpec)}`,
+          },
+          { role: 'user', content: wrapUserContent(input.message) },
+        ],
+      });
+
+      const content = completion.choices[0]?.message.content;
+
+      if (content === null || content === '') {
+        return { kind: 'route_to_main', reason: 'No pude interpretar el cambio de visualización.' };
+      }
+
+      const parsed = JSON.parse(content) as {
+        kind?: unknown;
+        chartSpec?: unknown;
+        reason?: unknown;
+      };
+
+      if (parsed.kind === 'visual' && isChartSpec(parsed.chartSpec)) {
+        return { kind: 'visual', chartSpec: parsed.chartSpec };
+      }
+
+      return {
+        kind: 'route_to_main',
+        reason:
+          typeof parsed.reason === 'string' && parsed.reason !== ''
+            ? parsed.reason
+            : 'El cambio solicitado afecta los datos; usa el chat principal.',
+      };
+    },
   };
+}
+
+function narrativeDepthInstruction(intentMode: NarrativeInput['intentMode']): string {
+  if (intentMode === 'analizar') {
+    return 'Modo analisis: profundiza en la tendencia, los cambios notables y un insight accionable. Hasta 5 frases.';
+  }
+
+  return 'Modo respuesta: se directo y conciso. Maximo 3 frases.';
+}
+
+function isChartSpec(value: unknown): value is { type: string; x: string | null; y: string } {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as { type?: unknown; x?: unknown; y?: unknown };
+
+  return (
+    typeof candidate.type === 'string' &&
+    typeof candidate.y === 'string' &&
+    (candidate.x === null || typeof candidate.x === 'string')
+  );
+}
+
+const PLAN_SYSTEM_PROMPT = [
+  'Eres un analista ejecutivo. A partir de una metrica y sus datos, propones un',
+  'plan de accion para el CEO. Responde solo JSON con la forma',
+  '{ "actions": [{ "title": string, "detail": string }] }, con 2 a 4 acciones',
+  'concretas, priorizadas y basadas en los datos. No inventes cifras.',
+].join(' ');
+
+function chartEditSystemPrompt(availableColumns: string[]): string {
+  return [
+    'Editas la visualizacion de un grafico YA generado, sin re-consultar datos.',
+    'Decide si el pedido del usuario es SOLO un cambio visual o si requiere datos nuevos.',
+    `Tipos de grafico permitidos: ${VISUALIZATION_CHART_TYPES.join(', ')}.`,
+    `Columnas disponibles para ejes (no inventes otras): ${availableColumns.join(', ') || 'ninguna'}.`,
+    'Responde solo JSON: { "kind": "visual"|"route_to_main", "chartSpec": {"type":string,"x":string|null,"y":string}|null, "reason": string|null }.',
+    'Usa kind "visual" solo para cambios de representacion (tipo de grafico, ejes',
+    'entre columnas disponibles). Usa "route_to_main" con un motivo si el usuario',
+    'pide cambiar periodo, metrica, fuente, filtros o cualquier dato nuevo.',
+  ].join(' ');
 }
 
 function defaultClarification(): string {
