@@ -295,6 +295,8 @@ const PLAN_SYSTEM_PROMPT = [
   'plan de accion para el CEO. Responde solo JSON con la forma',
   '{ "actions": [{ "title": string, "detail": string }] }, con 2 a 4 acciones',
   'concretas, priorizadas y basadas en los datos. No inventes cifras.',
+  'No expongas nombres internos de columnas, campos ni vistas (p.ej. hours_logged,',
+  'period_month, source_view); habla en terminos de negocio que el CEO entienda.',
 ].join(' ');
 
 function chartEditSystemPrompt(availableColumns: string[]): string {
