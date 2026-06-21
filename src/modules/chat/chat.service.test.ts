@@ -4,12 +4,14 @@ import type { ReadonlyQueryResult } from '../sql-safety/readonly-query.service.j
 import type {
   ArtifactRecord,
   ChatRepository,
+  ConversationDetail,
   ConversationSummary,
   InsertArtifactInput,
   InsertMessageInput,
 } from './chat.repositories.js';
 import {
   editArtifactVisualization,
+  getConversationDetail,
   handleChatMessage,
   type RunReadonlyQuery,
 } from './chat.service.js';
@@ -31,6 +33,7 @@ function createFakeRepository() {
   const messages: InsertMessageInput[] = [];
   const artifacts: InsertArtifactInput[] = [];
   const artifactStore = new Map<string, { record: ArtifactRecord; userId: string }>();
+  const conversationDetails = new Map<string, { detail: ConversationDetail; userId: string }>();
   let messageCounter = 0;
 
   const repository: ChatRepository = {
@@ -54,6 +57,10 @@ function createFakeRepository() {
     listConversations(): Promise<ConversationSummary[]> {
       return Promise.resolve([]);
     },
+    getConversationDetail(conversationId, userId) {
+      const entry = conversationDetails.get(conversationId);
+      return Promise.resolve(entry?.userId === userId ? entry.detail : null);
+    },
     getArtifactForUser(artifactId, userId) {
       const entry = artifactStore.get(artifactId);
       return Promise.resolve(entry?.userId === userId ? entry.record : null);
@@ -67,7 +74,7 @@ function createFakeRepository() {
     },
   };
 
-  return { repository, messages, artifacts, artifactStore };
+  return { repository, messages, artifacts, artifactStore, conversationDetails };
 }
 
 const runQueryStub: RunReadonlyQuery = (sql) =>
@@ -378,6 +385,84 @@ describe('chart visualization mini-chat', () => {
       editArtifactVisualization(
         { repository, llm },
         { userId: 'someone-else', artifactId: 'artifact-1', message: 'ponlo de barras' },
+      ),
+    ).rejects.toThrow(/not found/iu);
+  });
+});
+
+describe('conversation detail', () => {
+  it('maps stored messages and artifacts into the rehydration view', async () => {
+    const { repository, conversationDetails } = createFakeRepository();
+    conversationDetails.set('conversation-1', {
+      userId: 'user-1',
+      detail: {
+        id: 'conversation-1',
+        title: 'MRR',
+        messages: [
+          {
+            id: 'm1',
+            role: 'USER',
+            content: '¿Cómo varió el MRR?',
+            traceId: 'trace-1',
+            artifacts: [],
+          },
+          {
+            id: 'm2',
+            role: 'ASSISTANT',
+            content: 'El MRR creció.',
+            traceId: 'trace-1',
+            artifacts: [
+              {
+                id: 'a1',
+                artifactType: 'CHART',
+                summary: 'El MRR creció.',
+                payload: { metric: 'mrr', rows: [{ period_month: '2026-05', mrr: 1 }] },
+                chartSpec: { type: 'line', x: 'period_month', y: 'mrr' },
+                warnings: ['La consulta no devolvió filas.'],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const response = await getConversationDetail(
+      { repository },
+      { userId: 'user-1', conversationId: 'conversation-1' },
+    );
+
+    expect(response.conversation_id).toBe('conversation-1');
+    expect(response.title).toBe('MRR');
+    expect(response.messages).toHaveLength(2);
+    expect(response.messages[0]).toMatchObject({
+      id: 'm1',
+      role: 'user',
+      content: '¿Cómo varió el MRR?',
+    });
+
+    const assistant = response.messages[1];
+    expect(assistant.role).toBe('assistant');
+    expect(assistant.warnings).toEqual(['La consulta no devolvió filas.']);
+    expect(assistant.artifacts).toHaveLength(1);
+    expect(assistant.artifacts[0]).toMatchObject({
+      id: 'a1',
+      type: 'CHART',
+      summary: 'El MRR creció.',
+    });
+    expect(assistant.artifacts[0].chart_spec).toMatchObject({ type: 'line', x: 'period_month' });
+  });
+
+  it('throws 404 when the conversation does not belong to the user', async () => {
+    const { repository, conversationDetails } = createFakeRepository();
+    conversationDetails.set('conversation-1', {
+      userId: 'owner',
+      detail: { id: 'conversation-1', title: null, messages: [] },
+    });
+
+    await expect(
+      getConversationDetail(
+        { repository },
+        { userId: 'intruder', conversationId: 'conversation-1' },
       ),
     ).rejects.toThrow(/not found/iu);
   });

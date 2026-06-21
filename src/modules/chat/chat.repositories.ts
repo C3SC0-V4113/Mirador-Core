@@ -46,6 +46,29 @@ export type ArtifactRecord = {
   sourceViews: string[];
 };
 
+export type ConversationArtifactRecord = {
+  id: string;
+  artifactType: ArtifactType;
+  summary: string | null;
+  payload: unknown;
+  chartSpec: unknown;
+  warnings: string[];
+};
+
+export type ConversationMessageRecord = {
+  id: string;
+  role: ChatRole;
+  content: string;
+  traceId: string;
+  artifacts: ConversationArtifactRecord[];
+};
+
+export type ConversationDetail = {
+  id: string;
+  title: string | null;
+  messages: ConversationMessageRecord[];
+};
+
 export type ChatRepository = {
   ensureConversation(userId: string, conversationId: string | undefined): Promise<string>;
   insertMessage(input: InsertMessageInput): Promise<{ id: string }>;
@@ -55,6 +78,7 @@ export type ChatRepository = {
     take?: number,
   ): Promise<{ role: ChatRole; content: string }[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
+  getConversationDetail(conversationId: string, userId: string): Promise<ConversationDetail | null>;
   getArtifactForUser(artifactId: string, userId: string): Promise<ArtifactRecord | null>;
   updateArtifactChartSpec(artifactId: string, chartSpec: Prisma.InputJsonValue): Promise<void>;
 };
@@ -153,6 +177,62 @@ export function createChatRepository(prisma: PrismaClient): ChatRepository {
         updatedAt: conversation.updatedAt,
         lastMessage: conversation.messages[0]?.content ?? null,
       }));
+    },
+
+    async getConversationDetail(conversationId, userId) {
+      // El filtro por userId garantiza que el CEO solo reabre conversaciones
+      // propias. Mensajes y sus artefactos en orden cronologico para rehidratar
+      // el hilo tal como se vio en vivo.
+      const conversation = await prisma.conversation.findFirst({
+        where: { id: conversationId, userId },
+        select: {
+          id: true,
+          title: true,
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              role: true,
+              content: true,
+              traceId: true,
+              artifacts: {
+                orderBy: { createdAt: 'asc' },
+                select: {
+                  id: true,
+                  artifactType: true,
+                  summary: true,
+                  payload: true,
+                  chartSpec: true,
+                  warnings: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (conversation === null) {
+        return null;
+      }
+
+      return {
+        id: conversation.id,
+        title: conversation.title,
+        messages: conversation.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          traceId: message.traceId,
+          artifacts: message.artifacts.map((artifact) => ({
+            id: artifact.id,
+            artifactType: artifact.artifactType,
+            summary: artifact.summary,
+            payload: artifact.payload,
+            chartSpec: artifact.chartSpec,
+            warnings: artifact.warnings,
+          })),
+        })),
+      };
     },
 
     async getArtifactForUser(artifactId, userId) {

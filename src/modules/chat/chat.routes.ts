@@ -7,10 +7,15 @@ import { runReadonlyQuery } from '../sql-safety/readonly-query.service.js';
 import { requireCeo } from '../auth/auth.guard.js';
 import { createChatRepository } from './chat.repositories.js';
 import { chartEditBodySchema, chatMessageBodySchema } from './chat.schemas.js';
-import { editArtifactVisualization, handleChatMessage } from './chat.service.js';
+import {
+  editArtifactVisualization,
+  getConversationDetail,
+  handleChatMessage,
+} from './chat.service.js';
 import { createLlmProvider } from './llm/llm-provider.js';
 
 const artifactParamsSchema = z.object({ artifactId: z.uuid() });
+const conversationParamsSchema = z.object({ conversationId: z.uuid() });
 
 export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
   app.post('/api/chat/messages', { preHandler: requireCeo }, async (request, reply) => {
@@ -49,6 +54,24 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
 
     return reply.send({ conversations });
   });
+
+  app.get(
+    '/api/chat/conversations/:conversationId',
+    { preHandler: requireCeo },
+    async (request, reply) => {
+      if (request.currentUser === undefined) {
+        throw new AppError('Authentication required.', 401, 'AUTH_UNAUTHORIZED');
+      }
+
+      const params = conversationParamsSchema.parse(request.params);
+      const response = await getConversationDetail(
+        { repository: createChatRepository(app.prisma) },
+        { userId: request.currentUser.id, conversationId: params.conversationId },
+      );
+
+      return reply.send(response);
+    },
+  );
 
   // Mini-chat de gráficas: edita la visualización de un artefacto ya generado.
   app.post(

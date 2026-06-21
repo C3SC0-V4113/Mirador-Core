@@ -584,6 +584,60 @@ function derivePeriod(query: ReturnType<typeof validateMetricQuery>['query']): s
   return `${query.time_range.from}..${query.time_range.to}`;
 }
 
+export type ConversationDetailMessageView = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  trace_id: string;
+  warnings: string[];
+  artifacts: ChatArtifactView[];
+};
+
+export type ConversationDetailResponse = {
+  conversation_id: string;
+  title: string | null;
+  messages: ConversationDetailMessageView[];
+};
+
+export type GetConversationDetailDeps = { repository: ChatRepository };
+
+export type GetConversationDetailInput = { userId: string; conversationId: string };
+
+// Rehidrata una conversacion previa: mensajes en orden con sus artefactos en el
+// mismo shape (ChatArtifactView) que emite handleChatMessage, para que el
+// frontend reuse exactamente el mismo mapeo de artefactos al reabrir el hilo.
+export async function getConversationDetail(
+  deps: GetConversationDetailDeps,
+  input: GetConversationDetailInput,
+): Promise<ConversationDetailResponse> {
+  const detail = await deps.repository.getConversationDetail(input.conversationId, input.userId);
+
+  if (detail === null) {
+    throw new AppError('Conversation not found.', 404, 'CONVERSATION_NOT_FOUND');
+  }
+
+  return {
+    conversation_id: detail.id,
+    title: detail.title,
+    messages: detail.messages.map((message) => ({
+      id: message.id,
+      role: message.role === 'ASSISTANT' ? 'assistant' : 'user',
+      content: message.content,
+      trace_id: message.traceId,
+      // Las advertencias se persisten por artefacto; se agregan a nivel mensaje
+      // (deduplicadas) para reconstruir el bloque de advertencias del asistente.
+      warnings: [...new Set(message.artifacts.flatMap((artifact) => artifact.warnings))],
+      artifacts: message.artifacts.map((artifact) => ({
+        id: artifact.id,
+        type: artifact.artifactType,
+        summary: artifact.summary ?? '',
+        payload: artifact.payload,
+        chart_spec: artifact.chartSpec,
+      })),
+    })),
+  };
+}
+
 export type EditVisualizationDeps = {
   repository: ChatRepository;
   llm: LlmProvider;
