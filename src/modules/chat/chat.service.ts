@@ -213,8 +213,18 @@ export async function handleChatMessage(
     const queryResult = await deps.runQuery(compiled.sql);
     const jsonRows = JSON.parse(JSON.stringify(queryResult.rows)) as Prisma.InputJsonValue;
 
-    const artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
-    const chartSpec = buildChartSpec(plan.metric, artifactType);
+    let artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
+    let chartSpec = buildChartSpec(plan.metric, artifactType, plan.query);
+
+    // Si el grafico no es renderizable (sus columnas no estan en los datos), no
+    // emitimos un grafico vacio: degradamos un CHART a TABLA (el CEO ve los datos)
+    // y, en REPORT, lo dejamos sin grafico (conserva resumen + tabla).
+    if (chartSpec !== null && !chartColumnsRenderable(chartSpec, queryResult.rows)) {
+      chartSpec = null;
+      if (artifactType === 'CHART') {
+        artifactType = 'TABLE';
+      }
+    }
     // Narrativa y sugerencias en paralelo: ambas usan el modelo liviano, así no
     // sumamos latencia perceptible. Las sugerencias son contextuales a la métrica.
     const [narrative, suggestedQuestions] = await Promise.all([
@@ -650,19 +660,49 @@ function pickArtifactType(
 function buildChartSpec(
   metric: MetricDefinition,
   artifactType: ArtifactType,
+  query: ReturnType<typeof validateMetricQuery>['query'],
 ): Prisma.InputJsonValue | null {
   // CHART y REPORT llevan visualizacion; el resto no.
   if (artifactType !== 'CHART' && artifactType !== 'REPORT') {
     return null;
   }
 
+  // El eje X debe ser una columna REALMENTE proyectada. El compilador proyecta las
+  // dimensiones cuando hay; si no, la time_column. Espejamos esa logica para que el
+  // eje exista en las filas (evita graficos vacios al consultar por dimension).
   const firstDimension = metric.dimensions.length > 0 ? metric.dimensions[0] : null;
+  const x =
+    query.dimensions.length > 0 ? query.dimensions[0] : (metric.time_column ?? firstDimension);
 
   return {
     type: metric.default_chart,
-    x: metric.time_column ?? firstDimension,
+    x,
     y: metric.measure,
   };
+}
+
+// Verifica que el eje X y la medida del chart_spec existan como columnas en las
+// filas. Si no, el grafico no es renderizable y conviene degradar a tabla.
+function chartColumnsRenderable(chartSpec: Prisma.InputJsonValue | null, rows: unknown[]): boolean {
+  if (chartSpec === null || typeof chartSpec !== 'object') {
+    return false;
+  }
+
+  const firstRow = rows[0];
+
+  if (typeof firstRow !== 'object' || firstRow === null) {
+    return false;
+  }
+
+  const columns = new Set(Object.keys(firstRow));
+  const spec = chartSpec as { x?: unknown; y?: unknown };
+
+  return (
+    typeof spec.x === 'string' &&
+    columns.has(spec.x) &&
+    typeof spec.y === 'string' &&
+    columns.has(spec.y)
+  );
 }
 
 function derivePeriod(query: ReturnType<typeof validateMetricQuery>['query']): string | null {

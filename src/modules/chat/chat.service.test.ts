@@ -150,6 +150,63 @@ describe('chat orchestrator', () => {
     expect(captured?.catalogContext.metrics[0]).toHaveProperty('filters_allowed');
   });
 
+  it('sets the chart x-axis to the queried dimension (not the time column)', async () => {
+    const { repository } = createFakeRepository();
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'customer_revenue', dimensions: ['segment'] },
+        }),
+      composeNarrative: () => Promise.resolve('Ingresos por segmento.'),
+    });
+    const runQuery: RunReadonlyQuery = (sql) =>
+      Promise.resolve({
+        rows: [
+          { segment: 'Enterprise', revenue: '1000' },
+          { segment: 'SMB', revenue: '500' },
+        ],
+        sourceViews: ['ceo_customer_revenue_summary'],
+        validatedSql: sql,
+      });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery },
+      { userId: 'user-1', message: 'ingresos por segmento', traceId: 'trace-dim' },
+    );
+
+    expect(response.artifacts[0]?.type).toBe('CHART');
+    expect(response.chart).toMatchObject({ x: 'segment', y: 'revenue' });
+  });
+
+  it('downgrades to a TABLE when the chart columns are absent from the rows', async () => {
+    const { repository } = createFakeRepository();
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'customer_revenue', dimensions: ['segment'] },
+        }),
+      composeNarrative: () => Promise.resolve('No hay datos de ingresos por segmento.'),
+    });
+    // Rows lack `segment`/`revenue` → the chart is not renderable.
+    const runQuery: RunReadonlyQuery = (sql) =>
+      Promise.resolve({
+        rows: [{ health_score: 80 }, { health_score: 60 }],
+        sourceViews: ['ceo_customer_revenue_summary'],
+        validatedSql: sql,
+      });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery },
+      { userId: 'user-1', message: 'ingresos por segmento', traceId: 'trace-bad' },
+    );
+
+    expect(response.artifacts[0]?.type).toBe('TABLE');
+    expect(response.artifacts[0]?.chart_spec).toBeNull();
+    expect(response.chart).toBeNull();
+  });
+
   it('returns a graceful message (not a 500) when the analytics query fails', async () => {
     const { repository, artifacts } = createFakeRepository();
     const failingRunQuery: RunReadonlyQuery = () =>
