@@ -2,6 +2,7 @@ import type {
   ChartEditInput,
   ChartEditResult,
   FallbackSqlInput,
+  FollowUpInput,
   LlmProvider,
   MetricCatalogContext,
   MetricPlan,
@@ -59,6 +60,17 @@ export function createStubLlmProvider(): LlmProvider {
           title: 'Definir responsables',
           detail: 'Asigna dueños y fechas para las acciones derivadas de la métrica.',
         },
+      ]);
+    },
+
+    suggestFollowUps(input: FollowUpInput): Promise<string[]> {
+      // Determinista: sugerencias contextuales a la metrica resuelta. Sirve para
+      // tests y como fallback sin red; varia segun la etiqueta de la metrica.
+      const label = input.metricLabel;
+      return Promise.resolve([
+        `¿Cómo cambió ${label} respecto al periodo anterior?`,
+        `¿Qué factores explican la tendencia de ${label}?`,
+        `Genera un plan de acción a partir de ${label}.`,
       ]);
     },
 

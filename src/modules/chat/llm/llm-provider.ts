@@ -34,6 +34,16 @@ export type PlanInput = {
 
 export type PlanAction = { title: string; detail: string };
 
+export type FollowUpInput = {
+  question: string;
+  metricLabel: string;
+  rows: unknown[];
+  context: string;
+  // Catalogo completo: el modelo necesita saber QUE puede responder cada metrica
+  // (dimensiones, filtros) para no proponer preguntas multi-paso o no resolubles.
+  catalogContext: MetricCatalogContext;
+};
+
 export type ChartSpec = { type: string; x: string | null; y: string };
 
 export type ChartEditInput = {
@@ -71,6 +81,7 @@ export type LlmProvider = {
   ): Promise<MetricPlan>;
   composeNarrative(input: NarrativeInput): Promise<string>;
   composePlan(input: PlanInput): Promise<PlanAction[]>;
+  suggestFollowUps(input: FollowUpInput): Promise<string[]>;
   editChartSpec(input: ChartEditInput): Promise<ChartEditResult>;
   generateFallbackSql(input: FallbackSqlInput): Promise<{ sql: string } | null>;
 };

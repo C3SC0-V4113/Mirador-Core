@@ -109,6 +109,17 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
 
       const params = artifactParamsSchema.parse(request.params);
       const body = chartEditBodySchema.parse(request.body);
+      const edit =
+        'message' in body
+          ? ({ kind: 'message', message: body.message } as const)
+          : ({
+              kind: 'structured',
+              chartSpec: {
+                type: body.chart_spec.type,
+                x: body.chart_spec.x ?? null,
+                y: body.chart_spec.y,
+              },
+            } as const);
       const response = await editArtifactVisualization(
         {
           repository: createChatRepository(app.prisma),
@@ -117,7 +128,7 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
         {
           userId: request.currentUser.id,
           artifactId: params.artifactId,
-          message: body.message,
+          edit,
         },
       );
 

@@ -13,12 +13,6 @@ export const chatMessageBodySchema = z.object({
 
 export type ChatMessageBody = z.infer<typeof chatMessageBodySchema>;
 
-export const chartEditBodySchema = z.object({
-  message: z.string().min(1),
-});
-
-export type ChartEditBody = z.infer<typeof chartEditBodySchema>;
-
 // Tipos de grafica permitidos para ediciones de SOLO visualizacion (mini-chat).
 // No tocan datos; solo cambian la representacion de un artefacto ya generado.
 export const VISUALIZATION_CHART_TYPES = [
@@ -29,6 +23,22 @@ export const VISUALIZATION_CHART_TYPES = [
   'pie',
   'table',
 ] as const;
+
+// El mini-chat de gráficas acepta dos modos:
+// - lenguaje natural (`message`), interpretado por el LLM;
+// - estructurado (`chart_spec`), aplicado directamente sin LLM (botones de la UI).
+export const chartEditBodySchema = z.union([
+  z.object({ message: z.string().min(1) }),
+  z.object({
+    chart_spec: z.object({
+      type: z.enum(VISUALIZATION_CHART_TYPES),
+      x: z.string().nullable().optional(),
+      y: z.string().min(1),
+    }),
+  }),
+]);
+
+export type ChartEditBody = z.infer<typeof chartEditBodySchema>;
 
 export function toPrismaIntentMode(mode: IntentModeInput | undefined): IntentMode | null {
   if (mode === undefined) {

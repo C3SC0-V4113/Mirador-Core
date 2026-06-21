@@ -7,6 +7,7 @@ import type {
   ChartEditResult,
   ChatHistoryMessage,
   FallbackSqlInput,
+  FollowUpInput,
   LlmProvider,
   MetricCatalogContext,
   MetricPlan,
@@ -228,6 +229,40 @@ export function createOpenAiLlmProvider(): LlmProvider {
       });
     },
 
+    async suggestFollowUps(input: FollowUpInput): Promise<string[]> {
+      const completion = await client.chat.completions.create({
+        model: env.LIGHT_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: FOLLOW_UPS_SYSTEM_PROMPT },
+          {
+            role: 'system',
+            content: `Catálogo semántico (cada pregunta debe resolverse con UNA de estas métricas, usando solo sus dimensiones y filtros): ${JSON.stringify(input.catalogContext)}`,
+          },
+          {
+            role: 'user',
+            content: `Pregunta respondida: ${input.question}\nMétrica: ${input.metricLabel}\nFiltros y periodo: ${input.context === '' ? 'ninguno' : input.context}\nDatos (JSON): ${JSON.stringify(input.rows)}`,
+          },
+        ],
+      });
+
+      const content = completion.choices[0]?.message.content;
+
+      if (content === null || content === '') {
+        return [];
+      }
+
+      const parsed = JSON.parse(content) as { questions?: unknown };
+
+      if (!Array.isArray(parsed.questions)) {
+        return [];
+      }
+
+      return parsed.questions
+        .filter((question): question is string => typeof question === 'string' && question !== '')
+        .slice(0, 4);
+    },
+
     async editChartSpec(input: ChartEditInput): Promise<ChartEditResult> {
       const completion = await client.chat.completions.create({
         model: env.LIGHT_MODEL,
@@ -331,6 +366,31 @@ const PLAN_SYSTEM_PROMPT = [
   'concretas, priorizadas y basadas en los datos. No inventes cifras.',
   'No expongas nombres internos de columnas, campos ni vistas (p.ej. hours_logged,',
   'period_month, source_view); habla en terminos de negocio que el CEO entienda.',
+].join(' ');
+
+const FOLLOW_UPS_SYSTEM_PROMPT = [
+  'Eres un analista ejecutivo. A partir de la pregunta ya respondida, su metrica y',
+  'sus datos, propones 2 a 4 preguntas de seguimiento que el CEO podria hacer a',
+  'continuacion.',
+  '',
+  '--- REGLA CRITICA DE RESPONDIBILIDAD ---',
+  'El motor analitico resuelve UNA sola metrica del catalogo por pregunta, acotada',
+  'a lo sumo por UN periodo (mes, trimestre o rango de fechas) o por filtros',
+  'simples permitidos por esa metrica. NO soporta, y por lo tanto NUNCA debes',
+  'proponer: preguntas de varios pasos; condiciones derivadas (p.ej. "en los meses',
+  'donde el MRR cayo", "cuando subio X"); cruces o joins entre dos metricas;',
+  'comparaciones que requieran calcular primero otra cosa; ni rankings de "mejor/peor"',
+  'mes. Si una idea necesita mas de un paso o combinar metricas, DESCARTALA.',
+  '',
+  '--- FORMA PREFERIDA ---',
+  'Prefiere preguntas directas, p.ej.: "¿Como evoluciono <metrica> en los ultimos 6',
+  'meses?", "¿Cual es el <metrica> actual?", "¿Como se distribuye <metrica> por',
+  '<dimension permitida>?", "¿Cuanto fue <metrica> en <periodo>?". Usa solo metricas,',
+  'dimensiones y filtros que existan en el catalogo provisto.',
+  '',
+  'Reglas finales: en espanol, breves, sin repetir la pregunta ya respondida, sin',
+  'exponer nombres internos de columnas/campos/vistas (habla en terminos de negocio).',
+  'Responde solo JSON con la forma { "questions": string[] }.',
 ].join(' ');
 
 const FALLBACK_SQL_SYSTEM_PROMPT = [

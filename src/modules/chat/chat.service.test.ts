@@ -24,6 +24,7 @@ function makeLlm(overrides: Partial<LlmProvider>): LlmProvider {
     planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: '' }),
     composeNarrative: () => Promise.resolve(''),
     composePlan: () => Promise.resolve([]),
+    suggestFollowUps: () => Promise.resolve([]),
     editChartSpec: () => Promise.resolve({ kind: 'route_to_main', reason: '' }),
     generateFallbackSql: () => Promise.resolve(null),
     ...overrides,
@@ -117,11 +118,36 @@ describe('chat orchestrator', () => {
     expect(response.trace_id).toBe('trace-abc');
     expect(response.data).toHaveLength(2);
     expect(response.artifacts).toHaveLength(1);
-    expect(response.suggested_questions).toHaveLength(5);
+    // Sugerencias dinámicas (stub): contextuales a la métrica resuelta.
+    expect(response.suggested_questions).toHaveLength(3);
+    expect(response.suggested_questions[0]).toContain('MRR');
 
     expect(messages.map((message) => message.role)).toEqual(['USER', 'ASSISTANT']);
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.traceId).toBe('trace-abc');
+  });
+
+  it('feeds the full metric catalog (not just labels) to follow-up suggestions', async () => {
+    const { repository } = createFakeRepository();
+    let captured: Parameters<LlmProvider['suggestFollowUps']>[0] | undefined;
+    const llm: LlmProvider = {
+      ...createStubLlmProvider(),
+      suggestFollowUps: (input) => {
+        captured = input;
+        return Promise.resolve(['¿Cuál es el MRR actual?']);
+      },
+    };
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub },
+      { userId: 'user-1', message: '¿Cómo varió el MRR?', traceId: 'trace-cat' },
+    );
+
+    expect(response.suggested_questions).toEqual(['¿Cuál es el MRR actual?']);
+    // The suggester gets the rich catalog so it only proposes answerable questions.
+    expect(captured?.catalogContext.metrics.length ?? 0).toBeGreaterThan(0);
+    expect(captured?.catalogContext.metrics[0]).toHaveProperty('dimensions');
+    expect(captured?.catalogContext.metrics[0]).toHaveProperty('filters_allowed');
   });
 
   it('returns a graceful message (not a 500) when the analytics query fails', async () => {
@@ -389,7 +415,11 @@ describe('chart visualization mini-chat', () => {
 
     const response = await editArtifactVisualization(
       { repository, llm },
-      { userId: 'user-1', artifactId: 'artifact-1', message: 'ponlo de barras' },
+      {
+        userId: 'user-1',
+        artifactId: 'artifact-1',
+        edit: { kind: 'message', message: 'ponlo de barras' },
+      },
     );
 
     expect(response.requires_main_chat).toBe(false);
@@ -397,6 +427,52 @@ describe('chart visualization mini-chat', () => {
       expect(response.chart_spec).toMatchObject({ type: 'bar', x: 'period_month', y: 'mrr' });
     }
     expect(artifactStore.get('artifact-1')?.record.chartSpec).toMatchObject({ type: 'bar' });
+  });
+
+  it('applies a structured change without calling the LLM', async () => {
+    const { repository, artifactStore } = seededRepository();
+    const llm = makeLlm({
+      editChartSpec: () =>
+        Promise.reject(new Error('LLM should not be called for structured edits')),
+    });
+
+    const response = await editArtifactVisualization(
+      { repository, llm },
+      {
+        userId: 'user-1',
+        artifactId: 'artifact-1',
+        edit: { kind: 'structured', chartSpec: { type: 'pie', x: 'period_month', y: 'mrr' } },
+      },
+    );
+
+    expect(response.requires_main_chat).toBe(false);
+    if (!response.requires_main_chat) {
+      expect(response.chart_spec).toMatchObject({ type: 'pie', x: 'period_month', y: 'mrr' });
+    }
+    expect(artifactStore.get('artifact-1')?.record.chartSpec).toMatchObject({ type: 'pie' });
+  });
+
+  it('clamps a structured edit to existing columns', async () => {
+    const { repository } = seededRepository();
+    const llm = makeLlm({});
+
+    const response = await editArtifactVisualization(
+      { repository, llm },
+      {
+        userId: 'user-1',
+        artifactId: 'artifact-1',
+        // `nonexistent` no es columna del artefacto → cae al eje actual (mrr).
+        edit: {
+          kind: 'structured',
+          chartSpec: { type: 'bar', x: 'period_month', y: 'nonexistent' },
+        },
+      },
+    );
+
+    expect(response.requires_main_chat).toBe(false);
+    if (!response.requires_main_chat) {
+      expect(response.chart_spec).toMatchObject({ type: 'bar', x: 'period_month', y: 'mrr' });
+    }
   });
 
   it('routes to the main chat when the change needs new data', async () => {
@@ -408,7 +484,11 @@ describe('chart visualization mini-chat', () => {
 
     const response = await editArtifactVisualization(
       { repository, llm },
-      { userId: 'user-1', artifactId: 'artifact-1', message: 'mejor el último año' },
+      {
+        userId: 'user-1',
+        artifactId: 'artifact-1',
+        edit: { kind: 'message', message: 'mejor el último año' },
+      },
     );
 
     expect(response.requires_main_chat).toBe(true);
@@ -424,7 +504,11 @@ describe('chart visualization mini-chat', () => {
     await expect(
       editArtifactVisualization(
         { repository, llm },
-        { userId: 'someone-else', artifactId: 'artifact-1', message: 'ponlo de barras' },
+        {
+          userId: 'someone-else',
+          artifactId: 'artifact-1',
+          edit: { kind: 'message', message: 'ponlo de barras' },
+        },
       ),
     ).rejects.toThrow(/not found/iu);
   });

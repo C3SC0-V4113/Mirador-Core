@@ -17,7 +17,13 @@ import {
   type IntentModeInput,
   toPrismaIntentMode,
 } from './chat.schemas.js';
-import type { LlmProvider, TemporalContext } from './llm/llm-provider.js';
+import type {
+  ChartSpec,
+  FollowUpInput,
+  LlmProvider,
+  MetricCatalogContext,
+  TemporalContext,
+} from './llm/llm-provider.js';
 
 export type RunReadonlyQuery = (sql: string) => Promise<ReadonlyQueryResult>;
 
@@ -176,6 +182,7 @@ export async function handleChatMessage(
           input,
           intentMode,
           temporalContext,
+          catalogContext,
         );
 
         if (fallback !== null) {
@@ -208,7 +215,18 @@ export async function handleChatMessage(
 
     const artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
     const chartSpec = buildChartSpec(plan.metric, artifactType);
-    const narrative = await composeNarrativeSafe(deps, input, plan, queryResult.rows);
+    // Narrativa y sugerencias en paralelo: ambas usan el modelo liviano, así no
+    // sumamos latencia perceptible. Las sugerencias son contextuales a la métrica.
+    const [narrative, suggestedQuestions] = await Promise.all([
+      composeNarrativeSafe(deps, input, plan, queryResult.rows),
+      suggestFollowUpsSafe(deps, {
+        question: input.message,
+        metricLabel: plan.metric.label,
+        rows: queryResult.rows,
+        context: describeQueryContext(plan.query),
+        catalogContext,
+      }),
+    ]);
     const warnings = queryResult.rows.length === 0 ? ['La consulta no devolvió filas.'] : [];
     const period = derivePeriod(plan.query);
     const freshness = new Date().toISOString();
@@ -263,7 +281,7 @@ export async function handleChatMessage(
       ],
       chart: chartSpec,
       warnings,
-      suggested_questions: [...SUGGESTED_QUESTIONS],
+      suggested_questions: suggestedQuestions,
       quick_actions: buildQuickActions(artifactType),
       metadata: {
         metric: plan.metric.name,
@@ -436,6 +454,20 @@ async function composePlanSafe(
   }
 }
 
+// Sugerencias de seguimiento contextuales; cae al set estatico si el LLM falla o
+// no devuelve nada, para no dejar la respuesta sin preguntas sugeridas.
+async function suggestFollowUpsSafe(
+  deps: ChatServiceDeps,
+  input: FollowUpInput,
+): Promise<string[]> {
+  try {
+    const result = await deps.llm.suggestFollowUps(input);
+    return result.length > 0 ? result : [...SUGGESTED_QUESTIONS];
+  } catch {
+    return [...SUGGESTED_QUESTIONS];
+  }
+}
+
 function buildQuickActions(artifactType: ArtifactType): string[] {
   const actions: string[] = [];
 
@@ -462,6 +494,7 @@ async function tryFallbackSql(
   input: HandleChatInput,
   intentMode: ReturnType<typeof toPrismaIntentMode>,
   temporalContext: TemporalContext,
+  catalogContext: MetricCatalogContext,
 ): Promise<ChatResponse | null> {
   const candidate = await deps.llm.generateFallbackSql({
     question: input.message,
@@ -494,7 +527,16 @@ async function tryFallbackSql(
 
   const jsonRows = JSON.parse(JSON.stringify(result.rows)) as Prisma.InputJsonValue;
   const artifactType: ArtifactType = result.rows.length <= 1 ? 'KPI' : 'TABLE';
-  const narrative = await composeFallbackNarrative(deps, input, result.rows);
+  const [narrative, suggestedQuestions] = await Promise.all([
+    composeFallbackNarrative(deps, input, result.rows),
+    suggestFollowUpsSafe(deps, {
+      question: input.message,
+      metricLabel: 'Consulta exploratoria',
+      rows: result.rows,
+      context: '',
+      catalogContext,
+    }),
+  ]);
   const warnings = [FALLBACK_WARNING];
   const payload: Prisma.InputJsonValue = { source: 'fallback_sql', rows: jsonRows };
 
@@ -532,7 +574,7 @@ async function tryFallbackSql(
     ],
     chart: null,
     warnings,
-    suggested_questions: [...SUGGESTED_QUESTIONS],
+    suggested_questions: suggestedQuestions,
     quick_actions: buildQuickActions(artifactType),
     metadata: {
       metric: null,
@@ -715,7 +757,8 @@ export type EditVisualizationDeps = {
 export type EditVisualizationInput = {
   userId: string;
   artifactId: string;
-  message: string;
+  // Lenguaje natural (interpretado por el LLM) o cambio estructurado directo.
+  edit: { kind: 'message'; message: string } | { kind: 'structured'; chartSpec: ChartSpec };
 };
 
 export type VisualizationResponse =
@@ -723,7 +766,9 @@ export type VisualizationResponse =
   | { requires_main_chat: false; artifact_id: string; chart_spec: Prisma.InputJsonValue };
 
 // Mini-chat de gráficas: edita SOLO la visualización (chart_spec) de un artefacto
-// ya generado, sin re-consultar. Si el pedido cambia datos, deriva al chat principal.
+// ya generado, sin re-consultar. El modo estructurado (botones) aplica el cambio
+// directo; el modo lenguaje natural lo interpreta el LLM y puede derivar al chat
+// principal si el pedido cambia datos. Ambos pasan por la misma validación/clamp.
 export async function editArtifactVisualization(
   deps: EditVisualizationDeps,
   input: EditVisualizationInput,
@@ -735,28 +780,37 @@ export async function editArtifactVisualization(
   }
 
   const availableColumns = extractArtifactColumns(artifact);
-  const edit = await deps.llm.editChartSpec({
-    message: input.message,
-    currentChartSpec: artifact.chartSpec,
-    availableColumns,
-  });
 
-  if (edit.kind === 'route_to_main') {
-    return { requires_main_chat: true, reason: edit.reason, artifact_id: artifact.id };
+  let desiredSpec: ChartSpec;
+
+  if (input.edit.kind === 'structured') {
+    desiredSpec = input.edit.chartSpec;
+  } else {
+    const edit = await deps.llm.editChartSpec({
+      message: input.edit.message,
+      currentChartSpec: artifact.chartSpec,
+      availableColumns,
+    });
+
+    if (edit.kind === 'route_to_main') {
+      return { requires_main_chat: true, reason: edit.reason, artifact_id: artifact.id };
+    }
+
+    desiredSpec = edit.chartSpec;
   }
 
   const allowedTypes = new Set<string>(VISUALIZATION_CHART_TYPES);
 
-  if (!allowedTypes.has(edit.chartSpec.type)) {
+  if (!allowedTypes.has(desiredSpec.type)) {
     throw new AppError(
-      `Chart type "${edit.chartSpec.type}" is not allowed.`,
+      `Chart type "${desiredSpec.type}" is not allowed.`,
       422,
       'CHART_TYPE_NOT_ALLOWED',
     );
   }
 
-  // Clamp de ejes a columnas reales del artefacto; si el modelo desvaria, caemos
-  // al chart_spec actual en vez de persistir ejes inexistentes.
+  // Clamp de ejes a columnas reales del artefacto; si el eje pedido no existe,
+  // caemos al chart_spec actual en vez de persistir ejes inexistentes.
   const columns = new Set(availableColumns);
   const current =
     typeof artifact.chartSpec === 'object' && artifact.chartSpec !== null
@@ -764,11 +818,12 @@ export async function editArtifactVisualization(
       : {};
   const currentX = typeof current.x === 'string' ? current.x : null;
   const currentY = typeof current.y === 'string' ? current.y : (availableColumns[0] ?? '');
+  const desiredX = desiredSpec.x ?? null;
 
   const chartSpec: Prisma.InputJsonValue = {
-    type: edit.chartSpec.type,
-    x: edit.chartSpec.x !== null && columns.has(edit.chartSpec.x) ? edit.chartSpec.x : currentX,
-    y: columns.has(edit.chartSpec.y) ? edit.chartSpec.y : currentY,
+    type: desiredSpec.type,
+    x: desiredX !== null && columns.has(desiredX) ? desiredX : currentX,
+    y: columns.has(desiredSpec.y) ? desiredSpec.y : currentY,
   };
 
   await deps.repository.updateArtifactChartSpec(artifact.id, chartSpec);
