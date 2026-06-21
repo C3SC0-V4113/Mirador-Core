@@ -11,11 +11,13 @@ import {
   editArtifactVisualization,
   getConversationDetail,
   handleChatMessage,
+  renameConversation,
 } from './chat.service.js';
 import { createLlmProvider } from './llm/llm-provider.js';
 
 const artifactParamsSchema = z.object({ artifactId: z.uuid() });
 const conversationParamsSchema = z.object({ conversationId: z.uuid() });
+const renameConversationBodySchema = z.object({ title: z.string().trim().min(1).max(120) });
 
 export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
   app.post('/api/chat/messages', { preHandler: requireCeo }, async (request, reply) => {
@@ -67,6 +69,29 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
       const response = await getConversationDetail(
         { repository: createChatRepository(app.prisma) },
         { userId: request.currentUser.id, conversationId: params.conversationId },
+      );
+
+      return reply.send(response);
+    },
+  );
+
+  app.patch(
+    '/api/chat/conversations/:conversationId',
+    { preHandler: requireCeo },
+    async (request, reply) => {
+      if (request.currentUser === undefined) {
+        throw new AppError('Authentication required.', 401, 'AUTH_UNAUTHORIZED');
+      }
+
+      const params = conversationParamsSchema.parse(request.params);
+      const body = renameConversationBodySchema.parse(request.body);
+      const response = await renameConversation(
+        { repository: createChatRepository(app.prisma) },
+        {
+          userId: request.currentUser.id,
+          conversationId: params.conversationId,
+          title: body.title,
+        },
       );
 
       return reply.send(response);

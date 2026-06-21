@@ -13,6 +13,7 @@ import {
   editArtifactVisualization,
   getConversationDetail,
   handleChatMessage,
+  renameConversation,
   type RunReadonlyQuery,
 } from './chat.service.js';
 import type { ChatHistoryMessage, LlmProvider } from './llm/llm-provider.js';
@@ -60,6 +61,16 @@ function createFakeRepository() {
     getConversationDetail(conversationId, userId) {
       const entry = conversationDetails.get(conversationId);
       return Promise.resolve(entry?.userId === userId ? entry.detail : null);
+    },
+    renameConversation(conversationId, userId, title) {
+      const entry = conversationDetails.get(conversationId);
+
+      if (entry?.userId !== userId) {
+        return Promise.resolve(false);
+      }
+
+      entry.detail = { ...entry.detail, title };
+      return Promise.resolve(true);
     },
     getArtifactForUser(artifactId, userId) {
       const entry = artifactStore.get(artifactId);
@@ -111,6 +122,35 @@ describe('chat orchestrator', () => {
     expect(messages.map((message) => message.role)).toEqual(['USER', 'ASSISTANT']);
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.traceId).toBe('trace-abc');
+  });
+
+  it('returns a graceful message (not a 500) when the analytics query fails', async () => {
+    const { repository, artifacts } = createFakeRepository();
+    const failingRunQuery: RunReadonlyQuery = () =>
+      Promise.reject(new Error('relation "ceo_revenue_summary" does not exist'));
+    const errorLogs: string[] = [];
+    const logger = {
+      warn: () => undefined,
+      error: (_details: Record<string, unknown>, message: string) => errorLogs.push(message),
+    };
+
+    const response = await handleChatMessage(
+      { repository, llm: createStubLlmProvider(), runQuery: failingRunQuery, logger },
+      {
+        userId: 'user-1',
+        message: '¿Cómo varió el MRR en los últimos meses?',
+        traceId: 'trace-fail',
+      },
+    );
+
+    expect(response.warnings).toContain('metric_execution_failed');
+    expect(response.metadata.answer_source).toBeNull();
+    expect(response.artifacts).toEqual([]);
+    expect(response.conversation_id).toBe('conversation-1');
+    // The real error is logged server-side, and nothing is persisted for the
+    // failed turn (no assistant artifact written).
+    expect(errorLogs).toContain('analytics.metric_execution_failed');
+    expect(artifacts).toHaveLength(0);
   });
 
   it('falls back to a clarification when no catalog metric matches', async () => {
@@ -463,6 +503,39 @@ describe('conversation detail', () => {
       getConversationDetail(
         { repository },
         { userId: 'intruder', conversationId: 'conversation-1' },
+      ),
+    ).rejects.toThrow(/not found/iu);
+  });
+});
+
+describe('rename conversation', () => {
+  it("renames a user's own conversation", async () => {
+    const { repository, conversationDetails } = createFakeRepository();
+    conversationDetails.set('conversation-1', {
+      userId: 'user-1',
+      detail: { id: 'conversation-1', title: null, messages: [] },
+    });
+
+    const result = await renameConversation(
+      { repository },
+      { userId: 'user-1', conversationId: 'conversation-1', title: 'Ingresos Q1' },
+    );
+
+    expect(result).toEqual({ id: 'conversation-1', title: 'Ingresos Q1' });
+    expect(conversationDetails.get('conversation-1')?.detail.title).toBe('Ingresos Q1');
+  });
+
+  it('throws 404 when renaming a conversation the user does not own', async () => {
+    const { repository, conversationDetails } = createFakeRepository();
+    conversationDetails.set('conversation-1', {
+      userId: 'owner',
+      detail: { id: 'conversation-1', title: null, messages: [] },
+    });
+
+    await expect(
+      renameConversation(
+        { repository },
+        { userId: 'intruder', conversationId: 'conversation-1', title: 'Hack' },
       ),
     ).rejects.toThrow(/not found/iu);
   });

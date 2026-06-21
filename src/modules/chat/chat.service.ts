@@ -64,7 +64,10 @@ function toIsoDate(value: unknown): string | null {
   return null;
 }
 
-export type ChatLogger = { warn: (details: Record<string, unknown>, message: string) => void };
+export type ChatLogger = {
+  warn: (details: Record<string, unknown>, message: string) => void;
+  error?: (details: Record<string, unknown>, message: string) => void;
+};
 
 export type ChatServiceDeps = {
   repository: ChatRepository;
@@ -78,6 +81,11 @@ export type AnswerSource = 'semantic' | 'fallback_sql' | null;
 
 const FALLBACK_WARNING =
   'Respuesta generada con SQL exploratorio fuera del catálogo de métricas; puede ser menos precisa. Verifica antes de tomar decisiones.';
+
+// Mensaje al CEO cuando la ejecucion de la consulta o la persistencia falla. El
+// error real se loguea server-side; al usuario no le exponemos detalles internos.
+const EXECUTION_ERROR_MESSAGE =
+  'No pude completar la consulta sobre los datos en este momento. Por favor, inténtalo de nuevo en unos minutos.';
 
 export type HandleChatInput = {
   userId: string;
@@ -190,75 +198,114 @@ export async function handleChatMessage(
     return respondClarification(deps, conversationId, input, intentMode);
   }
 
-  const compiled = compileMetricQuery(plan.query, plan.metric);
-  const queryResult = await deps.runQuery(compiled.sql);
-  const jsonRows = JSON.parse(JSON.stringify(queryResult.rows)) as Prisma.InputJsonValue;
+  // Ejecucion + persistencia: si la DB de analitica falla o no esta disponible,
+  // o la persistencia falla, NO devolvemos 500. Logueamos el error real y
+  // respondemos con un mensaje claro al CEO.
+  try {
+    const compiled = compileMetricQuery(plan.query, plan.metric);
+    const queryResult = await deps.runQuery(compiled.sql);
+    const jsonRows = JSON.parse(JSON.stringify(queryResult.rows)) as Prisma.InputJsonValue;
 
-  const artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
-  const chartSpec = buildChartSpec(plan.metric, artifactType);
-  const narrative = await composeNarrativeSafe(deps, input, plan, queryResult.rows);
-  const warnings = queryResult.rows.length === 0 ? ['La consulta no devolvió filas.'] : [];
-  const period = derivePeriod(plan.query);
-  const freshness = new Date().toISOString();
+    const artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
+    const chartSpec = buildChartSpec(plan.metric, artifactType);
+    const narrative = await composeNarrativeSafe(deps, input, plan, queryResult.rows);
+    const warnings = queryResult.rows.length === 0 ? ['La consulta no devolvió filas.'] : [];
+    const period = derivePeriod(plan.query);
+    const freshness = new Date().toISOString();
 
-  // El modo solo cambia COMO se presenta la metrica resuelta, no la metrica.
-  let payload: Prisma.InputJsonValue = { metric: plan.metric.name, rows: jsonRows };
+    // El modo solo cambia COMO se presenta la metrica resuelta, no la metrica.
+    let payload: Prisma.InputJsonValue = { metric: plan.metric.name, rows: jsonRows };
 
-  if (artifactType === 'ACTION_PLAN') {
-    const actions = await composePlanSafe(deps, input, plan, queryResult.rows);
-    payload = { metric: plan.metric.name, actions, rows: jsonRows };
-  } else if (artifactType === 'REPORT') {
-    payload = { metric: plan.metric.name, summary: narrative, rows: jsonRows };
+    if (artifactType === 'ACTION_PLAN') {
+      const actions = await composePlanSafe(deps, input, plan, queryResult.rows);
+      payload = { metric: plan.metric.name, actions, rows: jsonRows };
+    } else if (artifactType === 'REPORT') {
+      payload = { metric: plan.metric.name, summary: narrative, rows: jsonRows };
+    }
+
+    const assistantMessage = await deps.repository.insertMessage({
+      conversationId,
+      role: 'ASSISTANT',
+      content: narrative,
+      intentMode,
+      traceId: input.traceId,
+    });
+
+    const artifactRow = await deps.repository.insertArtifact({
+      conversationId,
+      messageId: assistantMessage.id,
+      artifactType,
+      question: input.message,
+      period,
+      sourceViews: queryResult.sourceViews,
+      validatedSql: queryResult.validatedSql,
+      summary: narrative,
+      payload,
+      chartSpec,
+      freshness,
+      warnings,
+      traceId: input.traceId,
+    });
+
+    return {
+      trace_id: input.traceId,
+      conversation_id: conversationId,
+      message: narrative,
+      data: queryResult.rows,
+      artifacts: [
+        {
+          id: artifactRow.id,
+          type: artifactType,
+          summary: narrative,
+          payload,
+          chart_spec: chartSpec,
+        },
+      ],
+      chart: chartSpec,
+      warnings,
+      suggested_questions: [...SUGGESTED_QUESTIONS],
+      quick_actions: buildQuickActions(artifactType),
+      metadata: {
+        metric: plan.metric.name,
+        source_views: queryResult.sourceViews,
+        validated_sql: queryResult.validatedSql,
+        intent_mode: input.intentMode ?? null,
+        answer_source: 'semantic',
+      },
+    };
+  } catch (error) {
+    deps.logger?.error?.(
+      {
+        trace_id: input.traceId,
+        metric: plan.metric.name,
+        err: error instanceof Error ? error.message : String(error),
+      },
+      'analytics.metric_execution_failed',
+    );
+
+    return buildExecutionErrorResponse(conversationId, input);
   }
+}
 
-  const assistantMessage = await deps.repository.insertMessage({
-    conversationId,
-    role: 'ASSISTANT',
-    content: narrative,
-    intentMode,
-    traceId: input.traceId,
-  });
-
-  const artifactRow = await deps.repository.insertArtifact({
-    conversationId,
-    messageId: assistantMessage.id,
-    artifactType,
-    question: input.message,
-    period,
-    sourceViews: queryResult.sourceViews,
-    validatedSql: queryResult.validatedSql,
-    summary: narrative,
-    payload,
-    chartSpec,
-    freshness,
-    warnings,
-    traceId: input.traceId,
-  });
-
+// Respuesta graceful (sin escribir en la DB) cuando la ejecucion de la metrica
+// falla: evita el 500 y no depende de que la persistencia funcione.
+function buildExecutionErrorResponse(conversationId: string, input: HandleChatInput): ChatResponse {
   return {
     trace_id: input.traceId,
     conversation_id: conversationId,
-    message: narrative,
-    data: queryResult.rows,
-    artifacts: [
-      {
-        id: artifactRow.id,
-        type: artifactType,
-        summary: narrative,
-        payload,
-        chart_spec: chartSpec,
-      },
-    ],
-    chart: chartSpec,
-    warnings,
+    message: EXECUTION_ERROR_MESSAGE,
+    data: [],
+    artifacts: [],
+    chart: null,
+    warnings: ['metric_execution_failed'],
     suggested_questions: [...SUGGESTED_QUESTIONS],
-    quick_actions: buildQuickActions(artifactType),
+    quick_actions: [],
     metadata: {
-      metric: plan.metric.name,
-      source_views: queryResult.sourceViews,
-      validated_sql: queryResult.validatedSql,
+      metric: null,
+      source_views: [],
+      validated_sql: null,
       intent_mode: input.intentMode ?? null,
-      answer_source: 'semantic',
+      answer_source: null,
     },
   };
 }
@@ -636,6 +683,28 @@ export async function getConversationDetail(
       })),
     })),
   };
+}
+
+export type RenameConversationDeps = { repository: ChatRepository };
+
+export type RenameConversationInput = { userId: string; conversationId: string; title: string };
+
+// Renombra una conversacion del usuario. Lanza 404 si no existe o no le pertenece.
+export async function renameConversation(
+  deps: RenameConversationDeps,
+  input: RenameConversationInput,
+): Promise<{ id: string; title: string }> {
+  const renamed = await deps.repository.renameConversation(
+    input.conversationId,
+    input.userId,
+    input.title,
+  );
+
+  if (!renamed) {
+    throw new AppError('Conversation not found.', 404, 'CONVERSATION_NOT_FOUND');
+  }
+
+  return { id: input.conversationId, title: input.title };
 }
 
 export type EditVisualizationDeps = {

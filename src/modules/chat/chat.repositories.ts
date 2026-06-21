@@ -79,6 +79,7 @@ export type ChatRepository = {
   ): Promise<{ role: ChatRole; content: string }[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
   getConversationDetail(conversationId: string, userId: string): Promise<ConversationDetail | null>;
+  renameConversation(conversationId: string, userId: string, title: string): Promise<boolean>;
   getArtifactForUser(artifactId: string, userId: string): Promise<ArtifactRecord | null>;
   updateArtifactChartSpec(artifactId: string, chartSpec: Prisma.InputJsonValue): Promise<void>;
 };
@@ -233,6 +234,17 @@ export function createChatRepository(prisma: PrismaClient): ChatRepository {
           })),
         })),
       };
+    },
+
+    async renameConversation(conversationId, userId, title) {
+      // updateMany con filtro por userId garantiza ownership: si la conversacion
+      // no es del usuario, count = 0 y no se renombra nada.
+      const result = await prisma.conversation.updateMany({
+        where: { id: conversationId, userId },
+        data: { title },
+      });
+
+      return result.count > 0;
     },
 
     async getArtifactForUser(artifactId, userId) {
