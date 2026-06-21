@@ -22,6 +22,12 @@ devuelve narrativa, `data`, `artifacts`, `chart`, `warnings`,
 (`responder`, `analizar`, `reporte_visual`, `plan`) moldea la salida sin descartar
 lo pedido en el prompt.
 
+`metadata.answer_source` indica el origen de la respuesta: `semantic` (camino
+determinista del catalogo), `fallback_sql` (SQL exploratorio gobernado, viene con
+una alerta de baja confianza en `warnings`) o `null` (aclaracion/conversacional).
+El fallback se desactiva con `FALLBACK_SQL_ENABLED=false`. Ver
+[ADR 0007](../adrs/0007-adopt-governed-sql-fallback-with-low-confidence-signaling.md).
+
 `/api/chat/artifacts/:artifactId/visualization` (mini-chat) edita solo el
 `chart_spec` de un artefacto ya generado, sin re-consultar. Si el pedido cambia
 datos/periodo/metrica/fuente, responde `{ requires_main_chat: true, reason }` para

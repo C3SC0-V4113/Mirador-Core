@@ -1,6 +1,7 @@
 import type {
   ChartEditInput,
   ChartEditResult,
+  FallbackSqlInput,
   LlmProvider,
   MetricCatalogContext,
   MetricPlan,
@@ -93,6 +94,20 @@ export function createStubLlmProvider(): LlmProvider {
           y: typeof current.y === 'string' ? current.y : (input.availableColumns[0] ?? ''),
         },
       });
+    },
+
+    generateFallbackSql(input: FallbackSqlInput) {
+      // Determinista para tests: solo "pagadores/paying" produce un SELECT valido
+      // sobre una columna real no expuesta como metrica; el resto no es respondible.
+      const normalized = input.question.toLowerCase();
+
+      if (/pagador|paying/u.test(normalized)) {
+        return Promise.resolve({
+          sql: 'SELECT period_month, paying_customers FROM ceo_revenue_summary LIMIT 100',
+        });
+      }
+
+      return Promise.resolve(null);
     },
   };
 }

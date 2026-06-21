@@ -138,7 +138,8 @@ Fuentes: `proposal.md`, ADR-0005, ADR-0006 y `data-assumptions.md`.
 - [x] Ejecutar runtime con rol PostgreSQL read-only. (Cableado `app.prismaReadonly`
       en Fase 6; antes solo existia el cliente sin usar.)
 - [x] Validar tanto SQL determinista de la capa semantica como SQL candidato de
-      fallback. (Compilador `MetricQuery`->SQL agregado en Fase 6.)
+      fallback. (Compilador `MetricQuery`->SQL en Fase 6; generacion de SQL de
+      fallback gobernado con alerta de baja confianza en ADR-0007.)
 - [x] Rechazar tablas internas no autorizadas y schema crudo fuera del contrato.
 - [x] Emitir errores o aclaraciones cuando una pregunta no pueda resolverse de forma
       segura.

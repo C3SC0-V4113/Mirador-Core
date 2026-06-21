@@ -3,11 +3,13 @@ import { type ArtifactType, Prisma } from '@prisma/client';
 import { AppError } from '../../shared/errors/app-error.js';
 import type { MetricDefinition } from '../schema-catalog/metric-catalog.js';
 import {
+  buildBusinessSchemaContext,
   buildMetricCatalogContext,
   validateMetricQuery,
 } from '../schema-catalog/metric-catalog.js';
 import { compileMetricQuery } from '../sql-safety/metric-query-compiler.js';
 import type { ReadonlyQueryResult } from '../sql-safety/readonly-query.service.js';
+import { validateReadonlySql } from '../sql-safety/sql-safety.js';
 import type { ArtifactRecord, ChatRepository } from './chat.repositories.js';
 import {
   SUGGESTED_QUESTIONS,
@@ -62,11 +64,20 @@ function toIsoDate(value: unknown): string | null {
   return null;
 }
 
+export type ChatLogger = { warn: (details: Record<string, unknown>, message: string) => void };
+
 export type ChatServiceDeps = {
   repository: ChatRepository;
   llm: LlmProvider;
   runQuery: RunReadonlyQuery;
+  fallbackEnabled?: boolean;
+  logger?: ChatLogger;
 };
+
+export type AnswerSource = 'semantic' | 'fallback_sql' | null;
+
+const FALLBACK_WARNING =
+  'Respuesta generada con SQL exploratorio fuera del catálogo de métricas; puede ser menos precisa. Verifica antes de tomar decisiones.';
 
 export type HandleChatInput = {
   userId: string;
@@ -99,6 +110,7 @@ export type ChatResponse = {
     source_views: string[];
     validated_sql: string | null;
     intent_mode: IntentModeInput | null;
+    answer_source: AnswerSource;
   };
 };
 
@@ -147,6 +159,22 @@ export async function handleChatMessage(
     }
 
     if (metricPlan.kind === 'clarify') {
+      // El catalogo no cubre la pregunta: intentar fallback SQL gobernado antes
+      // de aclarar. Si no produce datos, cae a la aclaracion del planner.
+      if (deps.fallbackEnabled === true) {
+        const fallback = await tryFallbackSql(
+          deps,
+          conversationId,
+          input,
+          intentMode,
+          temporalContext,
+        );
+
+        if (fallback !== null) {
+          return fallback;
+        }
+      }
+
       return await respondClarification(
         deps,
         conversationId,
@@ -230,6 +258,7 @@ export async function handleChatMessage(
       source_views: queryResult.sourceViews,
       validated_sql: queryResult.validatedSql,
       intent_mode: input.intentMode ?? null,
+      answer_source: 'semantic',
     },
   };
 }
@@ -288,6 +317,7 @@ async function respondText(
       source_views: [],
       validated_sql: null,
       intent_mode: input.intentMode ?? null,
+      answer_source: null,
     },
   };
 }
@@ -373,6 +403,117 @@ function buildQuickActions(artifactType: ArtifactType): string[] {
   actions.push('Comparar con el periodo anterior');
 
   return actions;
+}
+
+// Fallback SQL gobernado: cuando el catalogo no cubre la pregunta, el LLM propone
+// un SELECT sobre las views ceo_*, que pasa por el SQL Safety Layer y se ejecuta
+// read-only. Devuelve null (cae a aclaracion) si no hay candidato o no es seguro.
+// Toda respuesta por esta via lleva una alerta de baja confianza.
+async function tryFallbackSql(
+  deps: ChatServiceDeps,
+  conversationId: string,
+  input: HandleChatInput,
+  intentMode: ReturnType<typeof toPrismaIntentMode>,
+  temporalContext: TemporalContext,
+): Promise<ChatResponse | null> {
+  const candidate = await deps.llm.generateFallbackSql({
+    question: input.message,
+    schemaContext: buildBusinessSchemaContext(),
+    temporalContext,
+  });
+
+  if (candidate === null) {
+    return null;
+  }
+
+  let result: ReadonlyQueryResult;
+
+  try {
+    const validated = validateReadonlySql(candidate.sql);
+    result = await deps.runQuery(validated.sql);
+  } catch {
+    // SQL no gobernable o fallo de ejecucion: no exponemos el error, caemos a aclaracion.
+    return null;
+  }
+
+  deps.logger?.warn(
+    {
+      trace_id: input.traceId,
+      validated_sql: result.validatedSql,
+      source_views: result.sourceViews,
+    },
+    'analytics.fallback_sql_triggered',
+  );
+
+  const jsonRows = JSON.parse(JSON.stringify(result.rows)) as Prisma.InputJsonValue;
+  const artifactType: ArtifactType = result.rows.length <= 1 ? 'KPI' : 'TABLE';
+  const narrative = await composeFallbackNarrative(deps, input, result.rows);
+  const warnings = [FALLBACK_WARNING];
+  const payload: Prisma.InputJsonValue = { source: 'fallback_sql', rows: jsonRows };
+
+  const assistantMessage = await deps.repository.insertMessage({
+    conversationId,
+    role: 'ASSISTANT',
+    content: narrative,
+    intentMode,
+    traceId: input.traceId,
+  });
+
+  const artifactRow = await deps.repository.insertArtifact({
+    conversationId,
+    messageId: assistantMessage.id,
+    artifactType,
+    question: input.message,
+    period: null,
+    sourceViews: result.sourceViews,
+    validatedSql: result.validatedSql,
+    summary: narrative,
+    payload,
+    chartSpec: null,
+    freshness: new Date().toISOString(),
+    warnings,
+    traceId: input.traceId,
+  });
+
+  return {
+    trace_id: input.traceId,
+    conversation_id: conversationId,
+    message: narrative,
+    data: result.rows,
+    artifacts: [
+      { id: artifactRow.id, type: artifactType, summary: narrative, payload, chart_spec: null },
+    ],
+    chart: null,
+    warnings,
+    suggested_questions: [...SUGGESTED_QUESTIONS],
+    quick_actions: buildQuickActions(artifactType),
+    metadata: {
+      metric: null,
+      source_views: result.sourceViews,
+      validated_sql: result.validatedSql,
+      intent_mode: input.intentMode ?? null,
+      answer_source: 'fallback_sql',
+    },
+  };
+}
+
+async function composeFallbackNarrative(
+  deps: ChatServiceDeps,
+  input: HandleChatInput,
+  rows: unknown[],
+): Promise<string> {
+  try {
+    return await deps.llm.composeNarrative({
+      question: input.message,
+      metricLabel: 'Consulta exploratoria',
+      format: 'decimal',
+      rows,
+      context: '',
+      intentMode: input.intentMode,
+    });
+  } catch {
+    return `Consulta exploratoria: ${String(rows.length)} registro(s) recuperados.`;
+  }
 }
 
 // Resume filtros y periodo aplicados para que la narrativa conozca el sujeto

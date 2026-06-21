@@ -66,6 +66,13 @@ const envSchema = z
     OPENAI_API_KEY: z.string().min(1).optional(),
     ORCHESTRATOR_MODEL: z.string().min(1).default('gpt-5.2'),
     LIGHT_MODEL: z.string().min(1).default('gpt-5-mini'),
+    // Solo se desactiva con el literal "false"; cualquier otro valor (o ausencia)
+    // deja el fallback activo. Evita el comportamiento de z.coerce.boolean, que
+    // trata "false" como true.
+    FALLBACK_SQL_ENABLED: z
+      .string()
+      .default('true')
+      .transform((value) => value.toLowerCase() !== 'false'),
   })
   .superRefine((value, ctx) => {
     if (value.LLM_PROVIDER === 'openai' && value.OPENAI_API_KEY === undefined) {

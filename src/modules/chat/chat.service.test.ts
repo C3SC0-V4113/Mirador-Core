@@ -22,6 +22,7 @@ function makeLlm(overrides: Partial<LlmProvider>): LlmProvider {
     composeNarrative: () => Promise.resolve(''),
     composePlan: () => Promise.resolve([]),
     editChartSpec: () => Promise.resolve({ kind: 'route_to_main', reason: '' }),
+    generateFallbackSql: () => Promise.resolve(null),
     ...overrides,
   };
 }
@@ -234,6 +235,82 @@ describe('chat orchestrator', () => {
 
     expect(response.artifacts[0]?.type).toBe('REPORT');
     expect(response.chart).not.toBeNull();
+  });
+});
+
+describe('fallback SQL', () => {
+  it('answers via governed fallback SQL with a low-confidence alert', async () => {
+    const { repository, artifacts } = createFakeRepository();
+    const llm = makeLlm({
+      planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: 'sin métrica' }),
+      generateFallbackSql: () =>
+        Promise.resolve({
+          sql: 'SELECT period_month, paying_customers FROM ceo_revenue_summary LIMIT 100',
+        }),
+    });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub, fallbackEnabled: true },
+      { userId: 'user-1', message: '¿cuántos clientes pagadores por mes?', traceId: 'trace-fb' },
+    );
+
+    expect(response.metadata.answer_source).toBe('fallback_sql');
+    expect(response.metadata.metric).toBeNull();
+    expect(response.warnings.some((w) => w.includes('menos precisa'))).toBe(true);
+    expect(response.metadata.validated_sql).toContain('paying_customers');
+    expect(artifacts[0]?.payload).toMatchObject({ source: 'fallback_sql' });
+  });
+
+  it('falls back to clarification when the LLM has no fallback SQL', async () => {
+    const { repository } = createFakeRepository();
+    const llm = makeLlm({
+      planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: 'precisa' }),
+      generateFallbackSql: () => Promise.resolve(null),
+    });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub, fallbackEnabled: true },
+      { userId: 'user-1', message: 'algo raro', traceId: 'trace-fb2' },
+    );
+
+    expect(response.metadata.answer_source).toBeNull();
+    expect(response.warnings).toContain('metric_not_resolved');
+  });
+
+  it('clarifies (never 500) when the fallback SQL is not governable', async () => {
+    const { repository } = createFakeRepository();
+    const llm = makeLlm({
+      planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: 'precisa' }),
+      generateFallbackSql: () => Promise.resolve({ sql: 'SELECT email FROM users LIMIT 10' }),
+    });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub, fallbackEnabled: true },
+      { userId: 'user-1', message: 'dame los emails', traceId: 'trace-fb3' },
+    );
+
+    expect(response.metadata.answer_source).toBeNull();
+    expect(response.warnings).toContain('metric_not_resolved');
+  });
+
+  it('does not attempt fallback when disabled', async () => {
+    const { repository } = createFakeRepository();
+    let fallbackCalls = 0;
+    const llm = makeLlm({
+      planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: 'precisa' }),
+      generateFallbackSql: () => {
+        fallbackCalls += 1;
+        return Promise.resolve({ sql: 'SELECT period_month FROM ceo_revenue_summary LIMIT 10' });
+      },
+    });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub, fallbackEnabled: false },
+      { userId: 'user-1', message: 'algo', traceId: 'trace-fb4' },
+    );
+
+    expect(fallbackCalls).toBe(0);
+    expect(response.metadata.answer_source).toBeNull();
   });
 });
 

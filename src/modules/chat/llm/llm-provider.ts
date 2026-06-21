@@ -1,10 +1,14 @@
 import { env } from '../../../config/env.js';
-import type { buildMetricCatalogContext } from '../../schema-catalog/metric-catalog.js';
+import type {
+  buildBusinessSchemaContext,
+  buildMetricCatalogContext,
+} from '../../schema-catalog/metric-catalog.js';
 import type { IntentModeInput } from '../chat.schemas.js';
 import { createOpenAiLlmProvider } from './openai-llm-provider.js';
 import { createStubLlmProvider } from './stub-llm-provider.js';
 
 export type MetricCatalogContext = ReturnType<typeof buildMetricCatalogContext>;
+export type BusinessSchemaContext = ReturnType<typeof buildBusinessSchemaContext>;
 
 export type TemporalContext = {
   today: string;
@@ -42,6 +46,12 @@ export type ChartEditResult =
   | { kind: 'visual'; chartSpec: ChartSpec }
   | { kind: 'route_to_main'; reason: string };
 
+export type FallbackSqlInput = {
+  question: string;
+  schemaContext: BusinessSchemaContext;
+  temporalContext: TemporalContext;
+};
+
 export type ChatHistoryMessage = { role: 'USER' | 'ASSISTANT'; content: string };
 
 // El planner devuelve un candidato de MetricQuery (a validar aguas abajo) cuando
@@ -62,6 +72,7 @@ export type LlmProvider = {
   composeNarrative(input: NarrativeInput): Promise<string>;
   composePlan(input: PlanInput): Promise<PlanAction[]>;
   editChartSpec(input: ChartEditInput): Promise<ChartEditResult>;
+  generateFallbackSql(input: FallbackSqlInput): Promise<{ sql: string } | null>;
 };
 
 export function createLlmProvider(): LlmProvider {

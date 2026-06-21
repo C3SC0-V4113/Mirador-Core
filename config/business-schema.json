@@ -1,0 +1,86 @@
+{
+  "version": "2026-06-mvp",
+  "views": [
+    {
+      "name": "ceo_revenue_summary",
+      "columns": ["period_month", "revenue", "mrr", "arr", "paying_customers"]
+    },
+    {
+      "name": "ceo_customer_health",
+      "columns": [
+        "customer_id",
+        "customer_name",
+        "segment",
+        "industry",
+        "health_score",
+        "risk_level",
+        "active_mrr",
+        "critical_open_tickets"
+      ]
+    },
+    {
+      "name": "ceo_customer_revenue",
+      "columns": ["period_month", "customer_name", "segment", "risk_level", "revenue"]
+    },
+    {
+      "name": "ceo_sales_pipeline",
+      "columns": [
+        "stage",
+        "opportunity_count",
+        "pipeline_amount",
+        "forecast_amount",
+        "next_expected_close"
+      ]
+    },
+    {
+      "name": "ceo_project_margin",
+      "columns": [
+        "project_id",
+        "project_name",
+        "customer_name",
+        "status",
+        "budget",
+        "estimated_cost",
+        "actual_cost",
+        "margin_amount",
+        "margin_percent"
+      ]
+    },
+    {
+      "name": "ceo_delivery_risk",
+      "columns": [
+        "project_id",
+        "project_name",
+        "customer_name",
+        "status",
+        "target_end_date",
+        "delivery_risk",
+        "hours_logged"
+      ]
+    },
+    {
+      "name": "ceo_support_health",
+      "columns": [
+        "period_month",
+        "priority",
+        "ticket_count",
+        "breached_sla_count",
+        "open_ticket_count",
+        "avg_resolution_hours"
+      ]
+    },
+    {
+      "name": "ceo_financial_runway",
+      "columns": [
+        "period_month",
+        "total_expenses",
+        "engineering_costs",
+        "sales_costs",
+        "marketing_costs",
+        "support_costs",
+        "operating_costs",
+        "runway_days"
+      ]
+    }
+  ]
+}

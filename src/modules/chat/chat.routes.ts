@@ -1,6 +1,7 @@
 import type { FastifyPluginCallback } from 'fastify';
 import { z } from 'zod';
 
+import { env } from '../../config/env.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import { runReadonlyQuery } from '../sql-safety/readonly-query.service.js';
 import { requireCeo } from '../auth/auth.guard.js';
@@ -23,6 +24,8 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
         repository: createChatRepository(app.prisma),
         llm: createLlmProvider(),
         runQuery: (sql) => runReadonlyQuery(app.prismaReadonly, sql),
+        fallbackEnabled: env.FALLBACK_SQL_ENABLED,
+        logger: app.log,
       },
       {
         userId: request.currentUser.id,

@@ -24,6 +24,23 @@ const metricCatalogSchema = z.object({
   metrics: z.array(metricDefinitionSchema).min(1),
 });
 
+// Esquema gobernado completo de las views ceo_* (allowlist para SQL Safety y
+// contexto del fallback SQL). Es la superficie ejecutiva permitida, mas amplia
+// que las columnas que cada metrica expone.
+const businessSchemaSchema = z.object({
+  version: z.string().min(1),
+  views: z
+    .array(
+      z.object({
+        name: z.string().startsWith('ceo_'),
+        columns: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1),
+});
+
+type BusinessSchema = z.infer<typeof businessSchemaSchema>;
+
 export const metricFilterSchema = z.object({
   field: z.string().min(1),
   operator: z.enum(['eq', 'neq', 'gte', 'lte', 'gt', 'lt', 'in']),
@@ -124,34 +141,28 @@ export function buildMetricCatalogContext() {
   };
 }
 
-export function buildBusinessSchemaContext() {
-  const catalog = loadMetricCatalog();
-  const views = new Map<string, Set<string>>();
+let cachedBusinessSchema: BusinessSchema | undefined;
 
-  for (const metric of catalog.metrics) {
-    const columns = views.get(metric.source_view) ?? new Set<string>();
-    columns.add(metric.measure);
-
-    for (const dimension of metric.dimensions) {
-      columns.add(dimension);
-    }
-
-    for (const filter of metric.filters_allowed) {
-      columns.add(filter);
-    }
-
-    if (metric.time_column !== null) {
-      columns.add(metric.time_column);
-    }
-
-    views.set(metric.source_view, columns);
+function loadBusinessSchema() {
+  if (cachedBusinessSchema !== undefined) {
+    return cachedBusinessSchema;
   }
 
+  const schemaPath = resolve(process.cwd(), 'config', 'business-schema.json');
+  const rawSchema = JSON.parse(readFileSync(schemaPath, 'utf8')) as unknown;
+  cachedBusinessSchema = businessSchemaSchema.parse(rawSchema);
+
+  return cachedBusinessSchema;
+}
+
+export function buildBusinessSchemaContext() {
+  const schema = loadBusinessSchema();
+
   return {
-    version: catalog.version,
-    views: [...views.entries()].map(([name, columns]) => ({
-      name,
-      columns: [...columns].sort(),
+    version: schema.version,
+    views: schema.views.map((view) => ({
+      name: view.name,
+      columns: [...view.columns].sort(),
     })),
   };
 }
