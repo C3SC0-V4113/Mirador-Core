@@ -84,6 +84,17 @@ enum IntentMode {
   PLAN
 }
 
+enum ClientType {
+  WEB
+  MCP
+}
+
+enum ValidationStatus {
+  VALID
+  REJECTED
+  NOT_APPLICABLE
+}
+
 model User {
   id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email         String         @unique
@@ -162,6 +173,35 @@ model ChatArtifact {
   @@index([conversationId])
   @@index([messageId])
   @@map("chat_artifacts")
+}
+
+model QueryAuditLog {
+  id                       String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                   String?          @map("user_id") @db.Uuid
+  clientType               ClientType       @map("client_type")
+  path                     String
+  question                 String
+  metric                   String?
+  intentMode               IntentMode?      @map("intent_mode")
+  answerSource             String?          @map("answer_source")
+  generatedSql             String?          @map("generated_sql")
+  validatedSql             String?          @map("validated_sql")
+  generatedSqlHash         String?          @map("generated_sql_hash")
+  validatedSqlHash         String?          @map("validated_sql_hash")
+  validationStatus         ValidationStatus @map("validation_status")
+  fallbackReason           String?          @map("fallback_reason")
+  missingMetricOrDimension String?          @map("missing_metric_or_dimension")
+  sourceViews              String[]         @map("source_views")
+  rowCount                 Int?             @map("row_count")
+  executionPlan            Json?            @map("execution_plan")
+  retrievedDocIds          String[]         @map("retrieved_doc_ids")
+  latencyMs                Int?             @map("latency_ms")
+  traceId                  String           @map("trace_id")
+  createdAt                DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@index([traceId])
+  @@map("query_audit_log")
 }
 
 model Customer {

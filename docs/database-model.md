@@ -41,6 +41,16 @@ Estas tablas las escribe el runtime (`mirador_app`); el rol read-only no tiene
 acceso. Ver
 [ADR 0004](adrs/0004-adopt-chat-orchestrator-with-deterministic-metric-path-and-pluggable-llm.md).
 
+## Auditoria (Fase 9)
+
+- `query_audit_log`: una fila por consulta de chat (`client_type`, `path`,
+  `question`, `metric`, `answer_source`, `generated_sql`/`validated_sql` + hashes
+  sha256, `validation_status`, `fallback_reason`, `missing_metric_or_dimension`,
+  `source_views`, `row_count`, `latency_ms`, `trace_id`). Sin FK a `users` (la
+  auditoria sobrevive borrados); columnas `execution_plan`/`retrieved_doc_ids`
+  nullable para RAG. La escribe `mirador_app`. Ver
+  [ADR 0008](adrs/0008-adopt-query-audit-log-and-observability.md).
+
 ## Tablas Fuente MVP
 
 - `customers`

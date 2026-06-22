@@ -1,6 +1,14 @@
-import { type ArtifactType, Prisma } from '@prisma/client';
+import {
+  type ArtifactType,
+  type ClientType,
+  type IntentMode,
+  Prisma,
+  type ValidationStatus,
+} from '@prisma/client';
 
 import { AppError } from '../../shared/errors/app-error.js';
+import { sha256 } from '../../shared/crypto/sql-hash.js';
+import type { AuditLogInput, AuditRepository } from '../audit/audit.repositories.js';
 import type { MetricDefinition } from '../schema-catalog/metric-catalog.js';
 import {
   buildBusinessSchemaContext,
@@ -81,6 +89,28 @@ export type ChatServiceDeps = {
   runQuery: RunReadonlyQuery;
   fallbackEnabled?: boolean;
   logger?: ChatLogger;
+  audit?: AuditRepository;
+};
+
+// Acumulador mutable que las distintas ramas pueblan; se escribe una sola vez por
+// request en el finally de handleChatMessage.
+type AuditAccumulator = {
+  userId: string | null;
+  clientType: ClientType;
+  path: string;
+  question: string;
+  traceId: string;
+  startedAt: number;
+  metric: string | null;
+  intentMode: IntentMode | null;
+  answerSource: string | null;
+  generatedSql: string | null;
+  validatedSql: string | null;
+  validationStatus: ValidationStatus;
+  fallbackReason: string | null;
+  missingMetricOrDimension: string | null;
+  sourceViews: string[];
+  rowCount: number | null;
 };
 
 export type AnswerSource = 'semantic' | 'fallback_sql' | null;
@@ -99,6 +129,8 @@ export type HandleChatInput = {
   conversationId?: string;
   intentMode?: IntentModeInput;
   traceId: string;
+  clientType?: ClientType;
+  path?: string;
 };
 
 export type ChatArtifactView = {
@@ -137,7 +169,24 @@ export async function handleChatMessage(
     input.userId,
     input.conversationId,
   );
+  const audit = createAuditAccumulator(input, intentMode);
 
+  try {
+    return await runChatPipeline(deps, input, conversationId, intentMode, audit);
+  } finally {
+    // Una sola fila de auditoria por request, en cualquier camino. Best-effort:
+    // un fallo de auditoria nunca rompe la respuesta al CEO.
+    await flushAudit(deps, audit);
+  }
+}
+
+async function runChatPipeline(
+  deps: ChatServiceDeps,
+  input: HandleChatInput,
+  conversationId: string,
+  intentMode: ReturnType<typeof toPrismaIntentMode>,
+  audit: AuditAccumulator,
+): Promise<ChatResponse> {
   const catalogContext = buildMetricCatalogContext();
   const temporalContext = await getTemporalContext(deps.runQuery);
   // Historial = turnos PREVIOS. Se lee antes de insertar el mensaje actual para
@@ -183,6 +232,7 @@ export async function handleChatMessage(
           intentMode,
           temporalContext,
           catalogContext,
+          audit,
         );
 
         if (fallback !== null) {
@@ -190,6 +240,7 @@ export async function handleChatMessage(
         }
       }
 
+      audit.missingMetricOrDimension = metricPlan.message;
       return await respondClarification(
         deps,
         conversationId,
@@ -202,6 +253,7 @@ export async function handleChatMessage(
     plan = validateMetricQuery(metricPlan.query);
   } catch {
     // Errores del proveedor LLM o de validacion: aclaracion, no 500.
+    audit.fallbackReason = 'planner_or_validation_error';
     return respondClarification(deps, conversationId, input, intentMode);
   }
 
@@ -212,6 +264,14 @@ export async function handleChatMessage(
     const compiled = compileMetricQuery(plan.query, plan.metric);
     const queryResult = await deps.runQuery(compiled.sql);
     const jsonRows = JSON.parse(JSON.stringify(queryResult.rows)) as Prisma.InputJsonValue;
+
+    audit.metric = plan.metric.name;
+    audit.answerSource = 'semantic';
+    audit.generatedSql = compiled.sql;
+    audit.validatedSql = queryResult.validatedSql;
+    audit.validationStatus = 'VALID';
+    audit.sourceViews = queryResult.sourceViews;
+    audit.rowCount = queryResult.rows.length;
 
     let artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
     let chartSpec = buildChartSpec(plan.metric, artifactType, plan.query);
@@ -311,6 +371,9 @@ export async function handleChatMessage(
       'analytics.metric_execution_failed',
     );
 
+    audit.metric = plan.metric.name;
+    audit.validationStatus = 'VALID';
+    audit.fallbackReason = 'metric_execution_failed';
     return buildExecutionErrorResponse(conversationId, input);
   }
 }
@@ -336,6 +399,73 @@ function buildExecutionErrorResponse(conversationId: string, input: HandleChatIn
       answer_source: null,
     },
   };
+}
+
+function createAuditAccumulator(
+  input: HandleChatInput,
+  intentMode: IntentMode | null,
+): AuditAccumulator {
+  return {
+    userId: input.userId,
+    clientType: input.clientType ?? 'WEB',
+    path: input.path ?? '/api/chat/messages',
+    question: input.message,
+    traceId: input.traceId,
+    startedAt: Date.now(),
+    metric: null,
+    intentMode,
+    answerSource: null,
+    generatedSql: null,
+    validatedSql: null,
+    validationStatus: 'NOT_APPLICABLE',
+    fallbackReason: null,
+    missingMetricOrDimension: null,
+    sourceViews: [],
+    rowCount: null,
+  };
+}
+
+// Escribe la fila de auditoria. Best-effort: si la auditoria falla, se loguea y se
+// sigue (nunca rompe la respuesta al CEO).
+async function flushAudit(deps: ChatServiceDeps, audit: AuditAccumulator): Promise<void> {
+  if (deps.audit === undefined) {
+    return;
+  }
+
+  const logInput: AuditLogInput = {
+    userId: audit.userId,
+    clientType: audit.clientType,
+    path: audit.path,
+    question: audit.question,
+    metric: audit.metric,
+    intentMode: audit.intentMode,
+    answerSource: audit.answerSource,
+    generatedSql: audit.generatedSql,
+    validatedSql: audit.validatedSql,
+    generatedSqlHash: audit.generatedSql === null ? null : sha256(audit.generatedSql),
+    validatedSqlHash: audit.validatedSql === null ? null : sha256(audit.validatedSql),
+    validationStatus: audit.validationStatus,
+    fallbackReason: audit.fallbackReason,
+    missingMetricOrDimension: audit.missingMetricOrDimension,
+    sourceViews: audit.sourceViews,
+    rowCount: audit.rowCount,
+    executionPlan: null,
+    retrievedDocIds: [],
+    latencyMs: Date.now() - audit.startedAt,
+    traceId: audit.traceId,
+  };
+
+  try {
+    await deps.audit.insertAuditLog(logInput);
+  } catch (error) {
+    deps.logger?.error?.(
+      {
+        trace_id: audit.traceId,
+        err: error instanceof Error ? error.message : String(error),
+      },
+      'audit.write_failed',
+    );
+  }
 }
 
 const DEFAULT_CLARIFICATION =
@@ -505,6 +635,7 @@ async function tryFallbackSql(
   intentMode: ReturnType<typeof toPrismaIntentMode>,
   temporalContext: TemporalContext,
   catalogContext: MetricCatalogContext,
+  audit: AuditAccumulator,
 ): Promise<ChatResponse | null> {
   const candidate = await deps.llm.generateFallbackSql({
     question: input.message,
@@ -513,8 +644,11 @@ async function tryFallbackSql(
   });
 
   if (candidate === null) {
+    audit.fallbackReason = 'fallback_no_candidate';
     return null;
   }
+
+  audit.generatedSql = candidate.sql;
 
   let result: ReadonlyQueryResult;
 
@@ -523,8 +657,16 @@ async function tryFallbackSql(
     result = await deps.runQuery(validated.sql);
   } catch {
     // SQL no gobernable o fallo de ejecucion: no exponemos el error, caemos a aclaracion.
+    audit.validationStatus = 'REJECTED';
+    audit.fallbackReason = 'fallback_sql_rejected';
     return null;
   }
+
+  audit.answerSource = 'fallback_sql';
+  audit.validatedSql = result.validatedSql;
+  audit.validationStatus = 'VALID';
+  audit.sourceViews = result.sourceViews;
+  audit.rowCount = result.rows.length;
 
   deps.logger?.warn(
     {

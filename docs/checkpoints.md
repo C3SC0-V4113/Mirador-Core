@@ -231,19 +231,24 @@ Fuentes: ADR-0007, `proposal.md` y `mcp-first-access.md`.
 
 Fuentes: `proposal.md`, `data-assumptions.md`, ADR-0006, ADR-0007 y ADR-0008.
 
-- [ ] Generar `trace_id` por respuesta y propagarlo en logs, auditoria y payload.
-- [ ] Implementar `query_audit_log` con `user_id`, `client_type`, `path`,
-      `question`, `metric_query`, `fallback_reason`, `missing_metric_or_dimension`,
+- [x] Generar `trace_id` por respuesta y propagarlo en logs, auditoria y payload.
+- [x] Implementar `query_audit_log` con `user_id`, `client_type`, `path`,
+      `question`, `metric`, `fallback_reason`, `missing_metric_or_dimension`,
       `generated_sql`, `validated_sql`, hashes de SQL, `validation_status` y timestamps.
-- [ ] Extender auditoria con `execution_plan` y `retrieved_doc_ids` para RAG.
-- [ ] Emitir log `warn` `analytics.fallback_sql_triggered` cuando se use fallback SQL.
-- [ ] Sanitizar o hashear SQL/preguntas cuando contengan valores sensibles.
-- [ ] Auditar web y MCP con el mismo modelo.
-- [ ] Exponer `freshness`, `warnings`, `source_views` y `trace_id` en artefactos de
+      (Ver ADR-0008; una fila por request en todos los caminos.)
+- [~] Extender auditoria con `execution_plan` y `retrieved_doc_ids` para RAG.
+  (Columnas creadas nullable; se pueblan en Fase 7.)
+- [x] Emitir log `warn` `analytics.fallback_sql_triggered` cuando se use fallback SQL.
+- [x] Sanitizar o hashear SQL/preguntas cuando contengan valores sensibles.
+      (Hash sha256 de `generated_sql`/`validated_sql`; redaccion fina diferida a multi-rol.)
+- [~] Auditar web y MCP con el mismo modelo. (Modelo soporta `client_type=MCP`;
+  web auditada; el cableado MCP es Fase 8.)
+- [x] Exponer `freshness`, `warnings`, `source_views` y `trace_id` en artefactos de
       chat.
 - [ ] Aplicar defensa en profundidad para Core Internal API: red privada Railway como
-      frontera primaria y `CORE_SERVICE_TOKEN` como segunda capa.
-- [ ] Separar secretos web, MCP, DB y proveedor LLM.
+      frontera primaria y `CORE_SERVICE_TOKEN` como segunda capa. (Token ya existe; la
+      red privada es Fase 10.)
+- [x] Separar secretos web, MCP, DB y proveedor LLM.
 
 ## Fase 10: Deployment MVP
 

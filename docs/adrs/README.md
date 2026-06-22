@@ -19,3 +19,4 @@ Las decisiones de arquitectura de `mirador-core` viven en esta carpeta.
 - [ADR 0005: Extend Planner With Temporal Context, Clarification Protocol And Per-Customer Revenue](0005-extend-planner-with-temporal-context-and-clarification-protocol.md)
 - [ADR 0006: Complete Chat — Intent Modes, Rich Artifacts And Chart Mini-Chat](0006-complete-chat-intent-modes-rich-artifacts-and-chart-mini-chat.md)
 - [ADR 0007: Adopt Governed SQL Fallback With Low-Confidence Signaling](0007-adopt-governed-sql-fallback-with-low-confidence-signaling.md)
+- [ADR 0008: Adopt Query Audit Log And Observability](0008-adopt-query-audit-log-and-observability.md)

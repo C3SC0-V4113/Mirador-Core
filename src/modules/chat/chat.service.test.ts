@@ -18,6 +18,18 @@ import {
 } from './chat.service.js';
 import type { ChatHistoryMessage, LlmProvider } from './llm/llm-provider.js';
 import { createStubLlmProvider } from './llm/stub-llm-provider.js';
+import type { AuditLogInput, AuditRepository } from '../audit/audit.repositories.js';
+
+function createFakeAudit() {
+  const rows: AuditLogInput[] = [];
+  const audit: AuditRepository = {
+    insertAuditLog: (input) => {
+      rows.push(input);
+      return Promise.resolve();
+    },
+  };
+  return { audit, rows };
+}
 
 function makeLlm(overrides: Partial<LlmProvider>): LlmProvider {
   return {
@@ -679,5 +691,84 @@ describe('rename conversation', () => {
         { userId: 'intruder', conversationId: 'conversation-1', title: 'Hack' },
       ),
     ).rejects.toThrow(/not found/iu);
+  });
+});
+
+describe('audit logging', () => {
+  it('writes one semantic audit row for a metric answer', async () => {
+    const { repository } = createFakeRepository();
+    const { audit, rows } = createFakeAudit();
+
+    await handleChatMessage(
+      { repository, llm: createStubLlmProvider(), runQuery: runQueryStub, audit },
+      { userId: 'user-1', message: '¿Cómo varió el MRR?', traceId: 'trace-audit-1' },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      answerSource: 'semantic',
+      metric: 'mrr',
+      validationStatus: 'VALID',
+      clientType: 'WEB',
+      traceId: 'trace-audit-1',
+    });
+    expect(rows[0]?.validatedSql).toContain('FROM ceo_revenue_summary');
+    expect(rows[0]?.validatedSqlHash).not.toBeNull();
+  });
+
+  it('writes a NOT_APPLICABLE audit row for a clarification', async () => {
+    const { repository } = createFakeRepository();
+    const { audit, rows } = createFakeAudit();
+    const llm = makeLlm({
+      planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: 'precisa la métrica' }),
+    });
+
+    await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub, audit, fallbackEnabled: false },
+      { userId: 'user-1', message: 'algo ambiguo', traceId: 'trace-audit-2' },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      answerSource: null,
+      validationStatus: 'NOT_APPLICABLE',
+      missingMetricOrDimension: 'precisa la métrica',
+    });
+  });
+
+  it('writes a fallback_sql audit row when the fallback answers', async () => {
+    const { repository } = createFakeRepository();
+    const { audit, rows } = createFakeAudit();
+    const llm = makeLlm({
+      planMetricQuery: () => Promise.resolve({ kind: 'clarify', message: 'sin métrica' }),
+      generateFallbackSql: () =>
+        Promise.resolve({
+          sql: 'SELECT period_month, paying_customers FROM ceo_revenue_summary LIMIT 100',
+        }),
+    });
+
+    await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub, audit, fallbackEnabled: true },
+      { userId: 'user-1', message: '¿clientes pagadores por mes?', traceId: 'trace-audit-3' },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ answerSource: 'fallback_sql', validationStatus: 'VALID' });
+    expect(rows[0]?.generatedSql).toContain('paying_customers');
+  });
+
+  it('does not fail the response when the audit write throws', async () => {
+    const { repository } = createFakeRepository();
+    const audit: AuditRepository = {
+      insertAuditLog: () => Promise.reject(new Error('audit db down')),
+    };
+
+    const response = await handleChatMessage(
+      { repository, llm: createStubLlmProvider(), runQuery: runQueryStub, audit },
+      { userId: 'user-1', message: '¿Cómo varió el MRR?', traceId: 'trace-audit-4' },
+    );
+
+    expect(response.metadata.metric).toBe('mrr');
+    expect(response.metadata.answer_source).toBe('semantic');
   });
 });

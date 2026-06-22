@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import { runReadonlyQuery } from '../sql-safety/readonly-query.service.js';
+import { createAuditRepository } from '../audit/audit.repositories.js';
 import { requireCeo } from '../auth/auth.guard.js';
 import { createChatRepository } from './chat.repositories.js';
 import { chartEditBodySchema, chatMessageBodySchema } from './chat.schemas.js';
@@ -33,6 +34,7 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
         runQuery: (sql) => runReadonlyQuery(app.prismaReadonly, sql),
         fallbackEnabled: env.FALLBACK_SQL_ENABLED,
         logger: app.log,
+        audit: createAuditRepository(app.prisma),
       },
       {
         userId: request.currentUser.id,
@@ -40,6 +42,8 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
         conversationId: body.conversation_id,
         intentMode: body.intent_mode,
         traceId: request.traceId,
+        clientType: 'WEB',
+        path: '/api/chat/messages',
       },
     );
 
