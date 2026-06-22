@@ -181,30 +181,34 @@ multi-paso (se responden con aclaracion).
 
 Fuentes: ADR-0008 y `rag-knowledge-layer.md`.
 
-- [ ] Habilitar extension `pgvector` en PostgreSQL.
-- [ ] Modelar `documents` con `title`, `source_uri`, `doc_type`, `version`,
+Corte 1 entregado (ver ADR-0009): capa de conocimiento + retrieval con citas. El
+orquestador multi-intencion (execution_plan) queda para el Corte 2.
+
+- [x] Habilitar extension `pgvector` en PostgreSQL.
+- [x] Modelar `documents` con `title`, `source_uri`, `doc_type`, `version`,
       `content_hash`, `access_scope`, `indexed_at` y `status`.
-- [ ] Modelar `document_chunks` con `document_id`, `chunk_index`, `content`,
+- [x] Modelar `document_chunks` con `document_id`, `chunk_index`, `content`,
       `embedding`, `token_count`, `locator` y `content_hash`.
-- [ ] Implementar `KnowledgeBaseContext` compacto y cacheable.
-- [ ] Implementar Knowledge Retrieval interno en `mirador-core`: embedding de query,
+- [x] Implementar `KnowledgeBaseContext` compacto y cacheable.
+      (`listKnowledgeBase`: titulos + tipo para el planner.)
+- [x] Implementar Knowledge Retrieval interno en `mirador-core`: embedding de query,
       busqueda vectorial top-k, filtro por `access_scope`/rol y metadata de cita.
-- [ ] Configurar `EMBEDDING_PROVIDER` y `EMBEDDING_MODEL`.
-- [ ] Usar `text-embedding-3-small` como default de embeddings y documentar
+- [x] Configurar `EMBEDDING_PROVIDER` y `EMBEDDING_MODEL`.
+- [x] Usar `text-embedding-3-small` como default de embeddings y documentar
       reindexacion al cambiar modelo.
-- [ ] Mantener rerank opcional y apagado por defecto.
-- [ ] Exigir citas a documento y localizador para narrativa documental.
-- [ ] Responder que no se encontro evidencia cuando los chunks recuperados no
+- [ ] Mantener rerank opcional y apagado por defecto. (Diferido; hoy no hay rerank.)
+- [x] Exigir citas a documento y localizador para narrativa documental.
+- [x] Responder que no se encontro evidencia cuando los chunks recuperados no
       fundamenten la respuesta.
-- [ ] Tratar contenido recuperado como dato, no como instruccion, para mitigar
+- [x] Tratar contenido recuperado como dato, no como instruccion, para mitigar
       prompt-injection.
 - [ ] Implementar `execution_plan` tipado con `metric_query`, `knowledge_lookup` y
-      `direct_answer`.
-- [ ] Validar limites y tipos del `execution_plan`.
+      `direct_answer`. (Corte 2.)
+- [ ] Validar limites y tipos del `execution_plan`. (Corte 2.)
 - [ ] Despachar subtareas en paralelo cuando el prompt combine metrica y
-      conocimiento.
+      conocimiento. (Corte 2.)
 - [ ] Sintetizar una sola respuesta con artefactos de metricas y narrativa documental
-      con citas.
+      con citas. (Corte 2; hoy es intencion unica.)
 
 ## Fase 8: Core Internal API Para `mirador-mcp`
 

@@ -51,6 +51,16 @@ acceso. Ver
   nullable para RAG. La escribe `mirador_app`. Ver
   [ADR 0008](adrs/0008-adopt-query-audit-log-and-observability.md).
 
+## Conocimiento (Fase 7)
+
+- `documents`: metadata de cada documento (`title`, `source_uri`, `doc_type`,
+  `version`, `content_hash`, `access_scope`, `status`, `indexed_at`).
+- `document_chunks`: fragmentos con `content`, `locator`, `token_count`,
+  `content_hash` y `embedding vector(1536)` (indice HNSW coseno). El retrieval y la
+  ingesta usan SQL parametrizado para la columna vector. Escritas/leidas por
+  `mirador_app`; el rol read-only no las toca. Ver
+  [ADR 0009](adrs/0009-adopt-knowledge-layer-rag-retrieval-with-citations.md).
+
 ## Tablas Fuente MVP
 
 - `customers`

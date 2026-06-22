@@ -18,6 +18,9 @@ import {
 import { compileMetricQuery } from '../sql-safety/metric-query-compiler.js';
 import type { ReadonlyQueryResult } from '../sql-safety/readonly-query.service.js';
 import { validateReadonlySql } from '../sql-safety/sql-safety.js';
+import type { EmbeddingProvider } from '../knowledge/embeddings/embedding-provider.js';
+import type { KnowledgeRepository } from '../knowledge/knowledge.repositories.js';
+import { type Citation, answerFromKnowledge } from '../knowledge/knowledge.service.js';
 import type { ArtifactRecord, ChatRepository } from './chat.repositories.js';
 import {
   SUGGESTED_QUESTIONS,
@@ -90,6 +93,8 @@ export type ChatServiceDeps = {
   fallbackEnabled?: boolean;
   logger?: ChatLogger;
   audit?: AuditRepository;
+  knowledge?: KnowledgeRepository;
+  embeddings?: EmbeddingProvider;
 };
 
 // Acumulador mutable que las distintas ramas pueblan; se escribe una sola vez por
@@ -111,12 +116,16 @@ type AuditAccumulator = {
   missingMetricOrDimension: string | null;
   sourceViews: string[];
   rowCount: number | null;
+  retrievedDocIds: string[];
 };
 
-export type AnswerSource = 'semantic' | 'fallback_sql' | null;
+export type AnswerSource = 'semantic' | 'fallback_sql' | 'knowledge' | null;
 
 const FALLBACK_WARNING =
   'Respuesta generada con SQL exploratorio fuera del catálogo de métricas; puede ser menos precisa. Verifica antes de tomar decisiones.';
+
+// Scope de la base de conocimiento para el CEO (MVP single-user).
+const KNOWLEDGE_ACCESS_SCOPE = 'CEO';
 
 // Mensaje al CEO cuando la ejecucion de la consulta o la persistencia falla. El
 // error real se loguea server-side; al usuario no le exponemos detalles internos.
@@ -151,6 +160,7 @@ export type ChatResponse = {
   warnings: string[];
   suggested_questions: string[];
   quick_actions: string[];
+  citations: Citation[];
   metadata: {
     metric: string | null;
     source_views: string[];
@@ -192,6 +202,12 @@ async function runChatPipeline(
   // Historial = turnos PREVIOS. Se lee antes de insertar el mensaje actual para
   // no duplicarlo (el mensaje actual se anexa una sola vez, ya delimitado).
   const recentMessages = await deps.repository.listRecentMessages(conversationId);
+  // Pista compacta de la base de conocimiento para que el planner pueda rutear a
+  // la intencion documental. Si no hay capa de conocimiento configurada, queda vacia.
+  const knowledgeBase =
+    deps.knowledge !== undefined
+      ? await deps.knowledge.listKnowledgeBase(KNOWLEDGE_ACCESS_SCOPE)
+      : [];
 
   await deps.repository.insertMessage({
     conversationId,
@@ -209,6 +225,7 @@ async function runChatPipeline(
       catalogContext,
       temporalContext,
       recentMessages,
+      knowledgeBase,
     );
 
     if (metricPlan.kind === 'conversational') {
@@ -219,6 +236,10 @@ async function runChatPipeline(
         intentMode,
         metricPlan.message,
       );
+    }
+
+    if (metricPlan.kind === 'knowledge') {
+      return await respondKnowledge(deps, conversationId, input, intentMode, audit);
     }
 
     if (metricPlan.kind === 'clarify') {
@@ -353,6 +374,7 @@ async function runChatPipeline(
       warnings,
       suggested_questions: suggestedQuestions,
       quick_actions: buildQuickActions(artifactType),
+      citations: [],
       metadata: {
         metric: plan.metric.name,
         source_views: queryResult.sourceViews,
@@ -391,6 +413,7 @@ function buildExecutionErrorResponse(conversationId: string, input: HandleChatIn
     warnings: ['metric_execution_failed'],
     suggested_questions: [...SUGGESTED_QUESTIONS],
     quick_actions: [],
+    citations: [],
     metadata: {
       metric: null,
       source_views: [],
@@ -422,6 +445,7 @@ function createAuditAccumulator(
     missingMetricOrDimension: null,
     sourceViews: [],
     rowCount: null,
+    retrievedDocIds: [],
   };
 }
 
@@ -450,7 +474,7 @@ async function flushAudit(deps: ChatServiceDeps, audit: AuditAccumulator): Promi
     sourceViews: audit.sourceViews,
     rowCount: audit.rowCount,
     executionPlan: null,
-    retrievedDocIds: [],
+    retrievedDocIds: audit.retrievedDocIds,
     latencyMs: Date.now() - audit.startedAt,
     traceId: audit.traceId,
   };
@@ -517,6 +541,7 @@ async function respondText(
     warnings,
     suggested_questions: [...SUGGESTED_QUESTIONS],
     quick_actions: [],
+    citations: [],
     metadata: {
       metric: null,
       source_views: [],
@@ -728,12 +753,88 @@ async function tryFallbackSql(
     warnings,
     suggested_questions: suggestedQuestions,
     quick_actions: buildQuickActions(artifactType),
+    citations: [],
     metadata: {
       metric: null,
       source_views: result.sourceViews,
       validated_sql: result.validatedSql,
       intent_mode: input.intentMode ?? null,
       answer_source: 'fallback_sql',
+    },
+  };
+}
+
+// Ruta documental (RAG): recupera chunks y sintetiza una respuesta con citas, o
+// responde "sin evidencia". Si la capa de conocimiento no esta configurada, aclara.
+async function respondKnowledge(
+  deps: ChatServiceDeps,
+  conversationId: string,
+  input: HandleChatInput,
+  intentMode: ReturnType<typeof toPrismaIntentMode>,
+  audit: AuditAccumulator,
+): Promise<ChatResponse> {
+  if (deps.knowledge === undefined || deps.embeddings === undefined) {
+    return respondClarification(deps, conversationId, input, intentMode);
+  }
+
+  audit.answerSource = 'knowledge';
+
+  const result = await answerFromKnowledge(
+    { knowledge: deps.knowledge, embeddings: deps.embeddings, llm: deps.llm },
+    { question: input.message, accessScope: KNOWLEDGE_ACCESS_SCOPE },
+  );
+
+  audit.retrievedDocIds = result.documentIds;
+  if (!result.hasEvidence) {
+    audit.fallbackReason = 'knowledge_no_evidence';
+  }
+
+  const warnings = result.hasEvidence ? [] : ['knowledge_no_evidence'];
+  const payload: Prisma.InputJsonValue = { source: 'knowledge', citations: result.citations };
+
+  const assistantMessage = await deps.repository.insertMessage({
+    conversationId,
+    role: 'ASSISTANT',
+    content: result.message,
+    intentMode,
+    traceId: input.traceId,
+  });
+
+  const artifactRow = await deps.repository.insertArtifact({
+    conversationId,
+    messageId: assistantMessage.id,
+    artifactType: 'TEXT',
+    question: input.message,
+    period: null,
+    sourceViews: [],
+    validatedSql: null,
+    summary: result.message,
+    payload,
+    chartSpec: null,
+    freshness: new Date().toISOString(),
+    warnings,
+    traceId: input.traceId,
+  });
+
+  return {
+    trace_id: input.traceId,
+    conversation_id: conversationId,
+    message: result.message,
+    data: [],
+    artifacts: [
+      { id: artifactRow.id, type: 'TEXT', summary: result.message, payload, chart_spec: null },
+    ],
+    chart: null,
+    warnings,
+    suggested_questions: [...SUGGESTED_QUESTIONS],
+    quick_actions: [],
+    citations: result.citations,
+    metadata: {
+      metric: null,
+      source_views: [],
+      validated_sql: null,
+      intent_mode: input.intentMode ?? null,
+      answer_source: 'knowledge',
     },
   };
 }

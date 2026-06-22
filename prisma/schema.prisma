@@ -89,6 +89,12 @@ enum ClientType {
   MCP
 }
 
+enum DocumentStatus {
+  PENDING
+  INDEXED
+  FAILED
+}
+
 enum ValidationStatus {
   VALID
   REJECTED
@@ -202,6 +208,39 @@ model QueryAuditLog {
   @@index([createdAt])
   @@index([traceId])
   @@map("query_audit_log")
+}
+
+model Document {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String
+  sourceUri   String?         @map("source_uri")
+  docType     String          @map("doc_type")
+  version     String          @default("1")
+  contentHash String          @map("content_hash")
+  accessScope String          @default("CEO") @map("access_scope")
+  status      DocumentStatus  @default(PENDING)
+  indexedAt   DateTime?       @map("indexed_at") @db.Timestamptz(6)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  chunks      DocumentChunk[]
+
+  @@index([accessScope])
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id          String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId  String                       @map("document_id") @db.Uuid
+  chunkIndex  Int                          @map("chunk_index")
+  content     String
+  tokenCount  Int                          @map("token_count")
+  locator     String
+  contentHash String                       @map("content_hash")
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  document    Document                     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("document_chunks")
 }
 
 model Customer {

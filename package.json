@@ -19,6 +19,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed/index.ts",
+    "knowledge:ingest": "tsx scripts/ingest-knowledge.ts",
     "postinstall": "prisma generate",
     "prepare": "husky"
   },

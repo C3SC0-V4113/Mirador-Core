@@ -24,9 +24,15 @@ lo pedido en el prompt.
 
 `metadata.answer_source` indica el origen de la respuesta: `semantic` (camino
 determinista del catalogo), `fallback_sql` (SQL exploratorio gobernado, viene con
-una alerta de baja confianza en `warnings`) o `null` (aclaracion/conversacional).
-El fallback se desactiva con `FALLBACK_SQL_ENABLED=false`. Ver
+una alerta de baja confianza en `warnings`), `knowledge` (respuesta documental RAG,
+trae `citations`) o `null` (aclaracion/conversacional). El fallback se desactiva con
+`FALLBACK_SQL_ENABLED=false`. Ver
 [ADR 0007](../adrs/0007-adopt-governed-sql-fallback-with-low-confidence-signaling.md).
+
+Para preguntas documentales, la respuesta incluye `citations`
+(`{ document_id, title, locator }[]`); si no hay evidencia, devuelve un aviso y
+`citations` vacio. Embeddings via `EMBEDDING_PROVIDER`/`EMBEDDING_MODEL`. Ver
+[ADR 0009](../adrs/0009-adopt-knowledge-layer-rag-retrieval-with-citations.md).
 
 `/api/chat/artifacts/:artifactId/visualization` (mini-chat) edita solo el
 `chart_spec` de un artefacto ya generado, sin re-consultar. Si el pedido cambia

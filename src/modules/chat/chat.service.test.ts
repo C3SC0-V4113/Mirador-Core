@@ -19,6 +19,8 @@ import {
 import type { ChatHistoryMessage, LlmProvider } from './llm/llm-provider.js';
 import { createStubLlmProvider } from './llm/stub-llm-provider.js';
 import type { AuditLogInput, AuditRepository } from '../audit/audit.repositories.js';
+import { createStubEmbeddingProvider } from '../knowledge/embeddings/stub-embedding-provider.js';
+import type { KnowledgeChunk, KnowledgeRepository } from '../knowledge/knowledge.repositories.js';
 
 function createFakeAudit() {
   const rows: AuditLogInput[] = [];
@@ -39,6 +41,7 @@ function makeLlm(overrides: Partial<LlmProvider>): LlmProvider {
     suggestFollowUps: () => Promise.resolve([]),
     editChartSpec: () => Promise.resolve({ kind: 'route_to_main', reason: '' }),
     generateFallbackSql: () => Promise.resolve(null),
+    composeKnowledgeAnswer: () => Promise.resolve(''),
     ...overrides,
   };
 }
@@ -770,5 +773,69 @@ describe('audit logging', () => {
 
     expect(response.metadata.metric).toBe('mrr');
     expect(response.metadata.answer_source).toBe('semantic');
+  });
+});
+
+describe('knowledge route', () => {
+  function fakeKnowledge(chunks: KnowledgeChunk[]): KnowledgeRepository {
+    return {
+      searchChunks: () => Promise.resolve(chunks),
+      listKnowledgeBase: () =>
+        Promise.resolve([{ title: 'Política de Delivery', docType: 'policy' }]),
+      insertDocumentWithChunks: () => Promise.resolve('doc'),
+    };
+  }
+
+  it('routes documental questions to a cited knowledge answer and audits it', async () => {
+    const { repository } = createFakeRepository();
+    const { audit, rows } = createFakeAudit();
+    const chunks: KnowledgeChunk[] = [
+      {
+        content: 'Las fechas se acuerdan al inicio.',
+        locator: 'Compromiso de fechas',
+        documentId: 'doc-1',
+        title: 'Política de Delivery',
+        score: 0.8,
+      },
+    ];
+    const llm = makeLlm({
+      planMetricQuery: () => Promise.resolve({ kind: 'knowledge' }),
+      composeKnowledgeAnswer: () =>
+        Promise.resolve(
+          'Las fechas se acuerdan al inicio (Política de Delivery, Compromiso de fechas).',
+        ),
+    });
+
+    const response = await handleChatMessage(
+      {
+        repository,
+        llm,
+        runQuery: runQueryStub,
+        audit,
+        knowledge: fakeKnowledge(chunks),
+        embeddings: createStubEmbeddingProvider(),
+      },
+      { userId: 'user-1', message: '¿cuál es la política de delivery?', traceId: 'trace-k1' },
+    );
+
+    expect(response.metadata.answer_source).toBe('knowledge');
+    expect(response.citations).toEqual([
+      { document_id: 'doc-1', title: 'Política de Delivery', locator: 'Compromiso de fechas' },
+    ]);
+    expect(rows[0]?.answerSource).toBe('knowledge');
+    expect(rows[0]?.retrievedDocIds).toEqual(['doc-1']);
+  });
+
+  it('clarifies when knowledge layer is not configured', async () => {
+    const { repository } = createFakeRepository();
+    const llm = makeLlm({ planMetricQuery: () => Promise.resolve({ kind: 'knowledge' }) });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub },
+      { userId: 'user-1', message: 'política de delivery', traceId: 'trace-k2' },
+    );
+
+    expect(response.metadata.answer_source).toBeNull();
+    expect(response.warnings).toContain('metric_not_resolved');
   });
 });

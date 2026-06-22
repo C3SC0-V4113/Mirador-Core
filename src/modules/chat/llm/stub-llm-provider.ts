@@ -3,6 +3,7 @@ import type {
   ChartEditResult,
   FallbackSqlInput,
   FollowUpInput,
+  KnowledgeAnswerInput,
   LlmProvider,
   MetricCatalogContext,
   MetricPlan,
@@ -12,6 +13,9 @@ import type {
 
 const VISUAL_CHANGE_PATTERN =
   /barra|barras|linea|línea|line|pastel|pie|torta|area|área|tabla|table|apilad|stacked|color/iu;
+
+const KNOWLEDGE_PATTERN =
+  /pol[ií]tica|visi[oó]n|misi[oó]n|valores|proceso|producto|onboarding|documento|manual/iu;
 
 // Proveedor determinista sin red. Mapea la pregunta a una metrica del catalogo por
 // coincidencia de nombre, etiqueta o sinonimo. Se usa en tests y como fallback
@@ -23,19 +27,24 @@ export function createStubLlmProvider(): LlmProvider {
       catalogContext,
       _temporalContext?,
       _conversationHistory?,
+      _knowledgeBase?,
     ): Promise<MetricPlan> {
       const normalized = prompt.toLowerCase();
       const match = findMetric(normalized, catalogContext);
 
-      if (match === undefined) {
-        return Promise.resolve({
-          kind: 'clarify',
-          message:
-            'No pude asociar tu pregunta a una métrica del catálogo. ¿Puedes precisar la métrica o el periodo?',
-        });
+      if (match !== undefined) {
+        return Promise.resolve({ kind: 'metric', query: { metric: match } });
       }
 
-      return Promise.resolve({ kind: 'metric', query: { metric: match } });
+      if (KNOWLEDGE_PATTERN.test(normalized)) {
+        return Promise.resolve({ kind: 'knowledge' });
+      }
+
+      return Promise.resolve({
+        kind: 'clarify',
+        message:
+          'No pude asociar tu pregunta a una métrica del catálogo. ¿Puedes precisar la métrica o el periodo?',
+      });
     },
 
     composeNarrative(input: NarrativeInput) {
@@ -120,6 +129,15 @@ export function createStubLlmProvider(): LlmProvider {
       }
 
       return Promise.resolve(null);
+    },
+
+    composeKnowledgeAnswer(input: KnowledgeAnswerInput) {
+      if (input.chunks.length === 0) {
+        return Promise.resolve('No encontré evidencia documental.');
+      }
+
+      const first = input.chunks[0];
+      return Promise.resolve(`${first.content} (${first.title}, ${first.locator})`);
     },
   };
 }

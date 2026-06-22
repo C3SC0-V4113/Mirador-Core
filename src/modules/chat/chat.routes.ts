@@ -5,6 +5,8 @@ import { env } from '../../config/env.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import { runReadonlyQuery } from '../sql-safety/readonly-query.service.js';
 import { createAuditRepository } from '../audit/audit.repositories.js';
+import { createEmbeddingProvider } from '../knowledge/embeddings/embedding-provider.js';
+import { createKnowledgeRepository } from '../knowledge/knowledge.repositories.js';
 import { requireCeo } from '../auth/auth.guard.js';
 import { createChatRepository } from './chat.repositories.js';
 import { chartEditBodySchema, chatMessageBodySchema } from './chat.schemas.js';
@@ -35,6 +37,8 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
         fallbackEnabled: env.FALLBACK_SQL_ENABLED,
         logger: app.log,
         audit: createAuditRepository(app.prisma),
+        knowledge: createKnowledgeRepository(app.prisma),
+        embeddings: createEmbeddingProvider(),
       },
       {
         userId: request.currentUser.id,

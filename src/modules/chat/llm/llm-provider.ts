@@ -62,15 +62,24 @@ export type FallbackSqlInput = {
   temporalContext: TemporalContext;
 };
 
+// Pista compacta de la base de conocimiento (titulos + tipo) para que el planner
+// sepa que hay documentacion y pueda rutear a la intencion `knowledge`.
+export type KnowledgeBaseHint = { title: string; docType: string };
+
+export type KnowledgeChunkRef = { title: string; locator: string; content: string };
+
+export type KnowledgeAnswerInput = { question: string; chunks: KnowledgeChunkRef[] };
+
 export type ChatHistoryMessage = { role: 'USER' | 'ASSISTANT'; content: string };
 
 // El planner devuelve un candidato de MetricQuery (a validar aguas abajo) cuando
-// la pregunta mapea a una metrica, una aclaracion especifica cuando no, o una
-// respuesta conversacional para saludos/presentaciones/preguntas no comerciales.
+// la pregunta mapea a una metrica, una aclaracion especifica cuando no, una
+// respuesta conversacional para saludos, o `knowledge` para preguntas documentales.
 export type MetricPlan =
   | { kind: 'metric'; query: Record<string, unknown> }
   | { kind: 'clarify'; message: string }
-  | { kind: 'conversational'; message: string };
+  | { kind: 'conversational'; message: string }
+  | { kind: 'knowledge' };
 
 export type LlmProvider = {
   planMetricQuery(
@@ -78,12 +87,14 @@ export type LlmProvider = {
     catalogContext: MetricCatalogContext,
     temporalContext: TemporalContext,
     conversationHistory?: ChatHistoryMessage[],
+    knowledgeBase?: KnowledgeBaseHint[],
   ): Promise<MetricPlan>;
   composeNarrative(input: NarrativeInput): Promise<string>;
   composePlan(input: PlanInput): Promise<PlanAction[]>;
   suggestFollowUps(input: FollowUpInput): Promise<string[]>;
   editChartSpec(input: ChartEditInput): Promise<ChartEditResult>;
   generateFallbackSql(input: FallbackSqlInput): Promise<{ sql: string } | null>;
+  composeKnowledgeAnswer(input: KnowledgeAnswerInput): Promise<string>;
 };
 
 export function createLlmProvider(): LlmProvider {

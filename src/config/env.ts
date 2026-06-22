@@ -73,6 +73,8 @@ const envSchema = z
       .string()
       .default('true')
       .transform((value) => value.toLowerCase() !== 'false'),
+    EMBEDDING_PROVIDER: z.enum(['openai', 'stub']).default('stub'),
+    EMBEDDING_MODEL: z.string().min(1).default('text-embedding-3-small'),
   })
   .superRefine((value, ctx) => {
     if (value.LLM_PROVIDER === 'openai' && value.OPENAI_API_KEY === undefined) {
@@ -80,6 +82,14 @@ const envSchema = z
         code: 'custom',
         path: ['OPENAI_API_KEY'],
         message: 'OPENAI_API_KEY is required when LLM_PROVIDER is "openai".',
+      });
+    }
+
+    if (value.EMBEDDING_PROVIDER === 'openai' && value.OPENAI_API_KEY === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OPENAI_API_KEY'],
+        message: 'OPENAI_API_KEY is required when EMBEDDING_PROVIDER is "openai".',
       });
     }
 
