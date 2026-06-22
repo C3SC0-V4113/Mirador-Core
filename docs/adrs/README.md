@@ -21,3 +21,4 @@ Las decisiones de arquitectura de `mirador-core` viven en esta carpeta.
 - [ADR 0007: Adopt Governed SQL Fallback With Low-Confidence Signaling](0007-adopt-governed-sql-fallback-with-low-confidence-signaling.md)
 - [ADR 0008: Adopt Query Audit Log And Observability](0008-adopt-query-audit-log-and-observability.md)
 - [ADR 0009: Adopt Knowledge Layer (RAG Retrieval With Citations)](0009-adopt-knowledge-layer-rag-retrieval-with-citations.md)
+- [ADR 0010: Adopt Multi-Intent Execution Plan (Combining Metric And Knowledge)](0010-adopt-multi-intent-execution-plan-combining-metric-and-knowledge.md)

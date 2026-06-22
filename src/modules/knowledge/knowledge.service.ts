@@ -19,51 +19,75 @@ export type KnowledgeAnswer = {
   hasEvidence: boolean;
 };
 
-export type KnowledgeServiceDeps = {
+export type KnowledgeChunkRef = { title: string; locator: string; content: string };
+
+export type KnowledgeRetrieval = {
+  chunks: KnowledgeChunkRef[];
+  citations: Citation[];
+  documentIds: string[];
+  hasEvidence: boolean;
+};
+
+export type KnowledgeRetrievalDeps = {
   knowledge: KnowledgeRepository;
   embeddings: EmbeddingProvider;
+};
+
+export type KnowledgeServiceDeps = KnowledgeRetrievalDeps & {
   llm: LlmProvider;
 };
 
-export async function answerFromKnowledge(
-  deps: KnowledgeServiceDeps,
+// Solo recuperacion (embed + busqueda vectorial), sin sintesis. Lo reusa el camino
+// documental puro y el combinado (metrica + conocimiento), que sintetiza una vez.
+export async function retrieveKnowledge(
+  deps: KnowledgeRetrievalDeps,
   input: { question: string; accessScope: string },
-): Promise<KnowledgeAnswer> {
+): Promise<KnowledgeRetrieval> {
   const queryEmbeddings = await deps.embeddings.embed([input.question]);
 
   if (queryEmbeddings.length === 0) {
-    return noEvidence();
+    return { chunks: [], citations: [], documentIds: [], hasEvidence: false };
   }
 
-  const chunks = await deps.knowledge.searchChunks(queryEmbeddings[0], {
+  const found = await deps.knowledge.searchChunks(queryEmbeddings[0], {
     topK: TOP_K,
     accessScope: input.accessScope,
   });
-  const relevant = chunks.filter((chunk) => chunk.score >= MIN_SCORE);
+  const relevant = found.filter((chunk) => chunk.score >= MIN_SCORE);
 
-  if (relevant.length === 0) {
-    return noEvidence();
-  }
-
-  const message = await deps.llm.composeKnowledgeAnswer({
-    question: input.question,
+  return {
     chunks: relevant.map((chunk) => ({
       title: chunk.title,
       locator: chunk.locator,
       content: chunk.content,
     })),
+    citations: dedupeCitations(relevant),
+    documentIds: [...new Set(relevant.map((chunk) => chunk.documentId))],
+    hasEvidence: relevant.length > 0,
+  };
+}
+
+export async function answerFromKnowledge(
+  deps: KnowledgeServiceDeps,
+  input: { question: string; accessScope: string },
+): Promise<KnowledgeAnswer> {
+  const retrieval = await retrieveKnowledge(deps, input);
+
+  if (!retrieval.hasEvidence) {
+    return { message: NO_EVIDENCE_MESSAGE, citations: [], documentIds: [], hasEvidence: false };
+  }
+
+  const message = await deps.llm.composeKnowledgeAnswer({
+    question: input.question,
+    chunks: retrieval.chunks,
   });
 
   return {
     message,
-    citations: dedupeCitations(relevant),
-    documentIds: [...new Set(relevant.map((chunk) => chunk.documentId))],
+    citations: retrieval.citations,
+    documentIds: retrieval.documentIds,
     hasEvidence: true,
   };
-}
-
-function noEvidence(): KnowledgeAnswer {
-  return { message: NO_EVIDENCE_MESSAGE, citations: [], documentIds: [], hasEvidence: false };
 }
 
 function dedupeCitations(chunks: KnowledgeChunk[]): Citation[] {

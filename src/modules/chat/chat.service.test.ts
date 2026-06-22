@@ -42,6 +42,7 @@ function makeLlm(overrides: Partial<LlmProvider>): LlmProvider {
     editChartSpec: () => Promise.resolve({ kind: 'route_to_main', reason: '' }),
     generateFallbackSql: () => Promise.resolve(null),
     composeKnowledgeAnswer: () => Promise.resolve(''),
+    composeCombinedAnswer: () => Promise.resolve(''),
     ...overrides,
   };
 }
@@ -172,6 +173,7 @@ describe('chat orchestrator', () => {
         Promise.resolve({
           kind: 'metric',
           query: { metric: 'customer_revenue', dimensions: ['segment'] },
+          knowledgeLookup: null,
         }),
       composeNarrative: () => Promise.resolve('Ingresos por segmento.'),
     });
@@ -201,6 +203,7 @@ describe('chat orchestrator', () => {
         Promise.resolve({
           kind: 'metric',
           query: { metric: 'customer_revenue', dimensions: ['segment'] },
+          knowledgeLookup: null,
         }),
       composeNarrative: () => Promise.resolve('No hay datos de ingresos por segmento.'),
     });
@@ -837,5 +840,93 @@ describe('knowledge route', () => {
 
     expect(response.metadata.answer_source).toBeNull();
     expect(response.warnings).toContain('metric_not_resolved');
+  });
+});
+
+describe('combined metric + knowledge', () => {
+  function fakeKnowledge(chunks: KnowledgeChunk[]): KnowledgeRepository {
+    return {
+      searchChunks: () => Promise.resolve(chunks),
+      listKnowledgeBase: () =>
+        Promise.resolve([{ title: 'Política de Delivery', docType: 'policy' }]),
+      insertDocumentWithChunks: () => Promise.resolve('doc'),
+    };
+  }
+
+  it('dispatches metric + knowledge and returns one mixed answer with citations', async () => {
+    const { repository } = createFakeRepository();
+    const { audit, rows } = createFakeAudit();
+    const chunks: KnowledgeChunk[] = [
+      {
+        content: 'En riesgo si supera 85% del costo.',
+        locator: 'Escalamiento de riesgo',
+        documentId: 'doc-1',
+        title: 'Política de Delivery',
+        score: 0.8,
+      },
+    ];
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'mrr' },
+          knowledgeLookup: 'política de delivery en riesgo',
+        }),
+      composeCombinedAnswer: () =>
+        Promise.resolve(
+          'El MRR se mantuvo; según la política (Política de Delivery, Escalamiento de riesgo) se escala al CEO.',
+        ),
+    });
+
+    const response = await handleChatMessage(
+      {
+        repository,
+        llm,
+        runQuery: runQueryStub,
+        audit,
+        knowledge: fakeKnowledge(chunks),
+        embeddings: createStubEmbeddingProvider(),
+      },
+      {
+        userId: 'user-1',
+        message: '¿cómo va el MRR y qué dice la política de delivery?',
+        traceId: 'trace-mix',
+      },
+    );
+
+    expect(response.metadata.answer_source).toBe('mixed');
+    expect(response.metadata.metric).toBe('mrr');
+    expect(response.artifacts[0]?.type).not.toBe('TEXT');
+    expect(response.citations).toHaveLength(1);
+    expect(rows[0]?.answerSource).toBe('mixed');
+    expect(rows[0]?.retrievedDocIds).toEqual(['doc-1']);
+    expect(rows[0]?.executionPlan).toMatchObject({ metric: 'mrr' });
+  });
+
+  it('answers metric-only with a warning when the documental part has no evidence', async () => {
+    const { repository } = createFakeRepository();
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'mrr' },
+          knowledgeLookup: 'algo sin documentacion',
+        }),
+    });
+
+    const response = await handleChatMessage(
+      {
+        repository,
+        llm,
+        runQuery: runQueryStub,
+        knowledge: fakeKnowledge([]),
+        embeddings: createStubEmbeddingProvider(),
+      },
+      { userId: 'user-1', message: '¿cómo va el MRR y la política X?', traceId: 'trace-mix2' },
+    );
+
+    expect(response.metadata.answer_source).toBe('semantic');
+    expect(response.warnings.some((w) => w.includes('soporte documental'))).toBe(true);
+    expect(response.citations).toEqual([]);
   });
 });

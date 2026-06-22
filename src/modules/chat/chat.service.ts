@@ -20,7 +20,12 @@ import type { ReadonlyQueryResult } from '../sql-safety/readonly-query.service.j
 import { validateReadonlySql } from '../sql-safety/sql-safety.js';
 import type { EmbeddingProvider } from '../knowledge/embeddings/embedding-provider.js';
 import type { KnowledgeRepository } from '../knowledge/knowledge.repositories.js';
-import { type Citation, answerFromKnowledge } from '../knowledge/knowledge.service.js';
+import {
+  type Citation,
+  type KnowledgeChunkRef,
+  answerFromKnowledge,
+  retrieveKnowledge,
+} from '../knowledge/knowledge.service.js';
 import type { ArtifactRecord, ChatRepository } from './chat.repositories.js';
 import {
   SUGGESTED_QUESTIONS,
@@ -117,9 +122,10 @@ type AuditAccumulator = {
   sourceViews: string[];
   rowCount: number | null;
   retrievedDocIds: string[];
+  executionPlan: Prisma.InputJsonValue | null;
 };
 
-export type AnswerSource = 'semantic' | 'fallback_sql' | 'knowledge' | null;
+export type AnswerSource = 'semantic' | 'fallback_sql' | 'knowledge' | 'mixed' | null;
 
 const FALLBACK_WARNING =
   'Respuesta generada con SQL exploratorio fuera del catálogo de métricas; puede ser menos precisa. Verifica antes de tomar decisiones.';
@@ -218,6 +224,8 @@ async function runChatPipeline(
   });
 
   let plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition };
+  // Sub-pregunta documental cuando el prompt combina metrica + conocimiento.
+  let knowledgeLookup: string | null = null;
 
   try {
     const metricPlan = await deps.llm.planMetricQuery(
@@ -272,6 +280,7 @@ async function runChatPipeline(
     }
 
     plan = validateMetricQuery(metricPlan.query);
+    knowledgeLookup = metricPlan.knowledgeLookup;
   } catch {
     // Errores del proveedor LLM o de validacion: aclaracion, no 500.
     audit.fallbackReason = 'planner_or_validation_error';
@@ -283,16 +292,32 @@ async function runChatPipeline(
   // respondemos con un mensaje claro al CEO.
   try {
     const compiled = compileMetricQuery(plan.query, plan.metric);
-    const queryResult = await deps.runQuery(compiled.sql);
+
+    // Despacho en paralelo: la consulta de la metrica y, si el prompt combina con
+    // una parte documental, el retrieval de conocimiento corren a la vez.
+    const knowledgePromise =
+      knowledgeLookup !== null && deps.knowledge !== undefined && deps.embeddings !== undefined
+        ? retrieveKnowledge(
+            { knowledge: deps.knowledge, embeddings: deps.embeddings },
+            { question: knowledgeLookup, accessScope: KNOWLEDGE_ACCESS_SCOPE },
+          )
+        : Promise.resolve(null);
+    const [queryResult, retrieval] = await Promise.all([
+      deps.runQuery(compiled.sql),
+      knowledgePromise,
+    ]);
     const jsonRows = JSON.parse(JSON.stringify(queryResult.rows)) as Prisma.InputJsonValue;
+    const combined = retrieval?.hasEvidence === true;
 
     audit.metric = plan.metric.name;
-    audit.answerSource = 'semantic';
+    audit.answerSource = combined ? 'mixed' : 'semantic';
     audit.generatedSql = compiled.sql;
     audit.validatedSql = queryResult.validatedSql;
     audit.validationStatus = 'VALID';
     audit.sourceViews = queryResult.sourceViews;
     audit.rowCount = queryResult.rows.length;
+    audit.retrievedDocIds = retrieval?.documentIds ?? [];
+    audit.executionPlan = { metric: plan.metric.name, knowledge_lookup: knowledgeLookup };
 
     let artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
     let chartSpec = buildChartSpec(plan.metric, artifactType, plan.query);
@@ -306,10 +331,12 @@ async function runChatPipeline(
         artifactType = 'TABLE';
       }
     }
-    // Narrativa y sugerencias en paralelo: ambas usan el modelo liviano, así no
-    // sumamos latencia perceptible. Las sugerencias son contextuales a la métrica.
+    // Narrativa y sugerencias en paralelo. Si hay evidencia documental, la narrativa
+    // es una sintesis combinada (metrica + conocimiento con citas).
     const [narrative, suggestedQuestions] = await Promise.all([
-      composeNarrativeSafe(deps, input, plan, queryResult.rows),
+      retrieval?.hasEvidence === true
+        ? composeCombinedSafe(deps, input, plan, queryResult.rows, retrieval.chunks)
+        : composeNarrativeSafe(deps, input, plan, queryResult.rows),
       suggestFollowUpsSafe(deps, {
         question: input.message,
         metricLabel: plan.metric.label,
@@ -318,7 +345,14 @@ async function runChatPipeline(
         catalogContext,
       }),
     ]);
-    const warnings = queryResult.rows.length === 0 ? ['La consulta no devolvió filas.'] : [];
+    const citations = retrieval?.citations ?? [];
+    const warnings: string[] = [];
+    if (queryResult.rows.length === 0) {
+      warnings.push('La consulta no devolvió filas.');
+    }
+    if (knowledgeLookup !== null && !combined) {
+      warnings.push('No encontré soporte documental para la parte adicional de tu pregunta.');
+    }
     const period = derivePeriod(plan.query);
     const freshness = new Date().toISOString();
 
@@ -374,13 +408,13 @@ async function runChatPipeline(
       warnings,
       suggested_questions: suggestedQuestions,
       quick_actions: buildQuickActions(artifactType),
-      citations: [],
+      citations,
       metadata: {
         metric: plan.metric.name,
         source_views: queryResult.sourceViews,
         validated_sql: queryResult.validatedSql,
         intent_mode: input.intentMode ?? null,
-        answer_source: 'semantic',
+        answer_source: combined ? 'mixed' : 'semantic',
       },
     };
   } catch (error) {
@@ -446,6 +480,7 @@ function createAuditAccumulator(
     sourceViews: [],
     rowCount: null,
     retrievedDocIds: [],
+    executionPlan: null,
   };
 }
 
@@ -473,7 +508,7 @@ async function flushAudit(deps: ChatServiceDeps, audit: AuditAccumulator): Promi
     missingMetricOrDimension: audit.missingMetricOrDimension,
     sourceViews: audit.sourceViews,
     rowCount: audit.rowCount,
-    executionPlan: null,
+    executionPlan: audit.executionPlan,
     retrievedDocIds: audit.retrievedDocIds,
     latencyMs: Date.now() - audit.startedAt,
     traceId: audit.traceId,
@@ -597,6 +632,26 @@ async function composeNarrativeSafe(
     });
   } catch {
     // Si la narrativa LLM falla, no perdemos los datos ya calculados.
+    return `${plan.metric.label}: ${String(rows.length)} registro(s) recuperados.`;
+  }
+}
+
+async function composeCombinedSafe(
+  deps: ChatServiceDeps,
+  input: HandleChatInput,
+  plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition },
+  rows: unknown[],
+  chunks: KnowledgeChunkRef[],
+): Promise<string> {
+  try {
+    return await deps.llm.composeCombinedAnswer({
+      question: input.message,
+      metricLabel: plan.metric.label,
+      rows,
+      context: describeQueryContext(plan.query),
+      chunks,
+    });
+  } catch {
     return `${plan.metric.label}: ${String(rows.length)} registro(s) recuperados.`;
   }
 }

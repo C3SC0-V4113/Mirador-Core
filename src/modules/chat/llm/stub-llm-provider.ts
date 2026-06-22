@@ -1,6 +1,7 @@
 import type {
   ChartEditInput,
   ChartEditResult,
+  CombinedAnswerInput,
   FallbackSqlInput,
   FollowUpInput,
   KnowledgeAnswerInput,
@@ -33,7 +34,9 @@ export function createStubLlmProvider(): LlmProvider {
       const match = findMetric(normalized, catalogContext);
 
       if (match !== undefined) {
-        return Promise.resolve({ kind: 'metric', query: { metric: match } });
+        // Combo determinista: si ademas hay una pista documental, adjunta el lookup.
+        const knowledgeLookup = KNOWLEDGE_PATTERN.test(normalized) ? prompt : null;
+        return Promise.resolve({ kind: 'metric', query: { metric: match }, knowledgeLookup });
       }
 
       if (KNOWLEDGE_PATTERN.test(normalized)) {
@@ -138,6 +141,16 @@ export function createStubLlmProvider(): LlmProvider {
 
       const first = input.chunks[0];
       return Promise.resolve(`${first.content} (${first.title}, ${first.locator})`);
+    },
+
+    composeCombinedAnswer(input: CombinedAnswerInput) {
+      const metricPart = `${input.metricLabel}: ${String(input.rows.length)} registro(s).`;
+      const [first] = input.chunks;
+      const docPart =
+        input.chunks.length === 0
+          ? 'Sin soporte documental.'
+          : `${first.content} (${first.title}, ${first.locator})`;
+      return Promise.resolve(`${metricPart} ${docPart}`);
     },
   };
 }

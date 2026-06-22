@@ -181,8 +181,9 @@ multi-paso (se responden con aclaracion).
 
 Fuentes: ADR-0008 y `rag-knowledge-layer.md`.
 
-Corte 1 entregado (ver ADR-0009): capa de conocimiento + retrieval con citas. El
-orquestador multi-intencion (execution_plan) queda para el Corte 2.
+Corte 1 entregado (ver ADR-0009): capa de conocimiento + retrieval con citas.
+Corte 2 entregado (ver ADR-0010): orquestacion multi-intencion (execution_plan)
+que combina metrica + conocimiento en una sola respuesta con `answer_source='mixed'`.
 
 - [x] Habilitar extension `pgvector` en PostgreSQL.
 - [x] Modelar `documents` con `title`, `source_uri`, `doc_type`, `version`,
@@ -202,13 +203,16 @@ orquestador multi-intencion (execution_plan) queda para el Corte 2.
       fundamenten la respuesta.
 - [x] Tratar contenido recuperado como dato, no como instruccion, para mitigar
       prompt-injection.
-- [ ] Implementar `execution_plan` tipado con `metric_query`, `knowledge_lookup` y
-      `direct_answer`. (Corte 2.)
-- [ ] Validar limites y tipos del `execution_plan`. (Corte 2.)
-- [ ] Despachar subtareas en paralelo cuando el prompt combine metrica y
-      conocimiento. (Corte 2.)
-- [ ] Sintetizar una sola respuesta con artefactos de metricas y narrativa documental
-      con citas. (Corte 2; hoy es intencion unica.)
+- [x] Implementar `execution_plan` tipado con `metric_query`, `knowledge_lookup` y
+      `direct_answer`. (Corte 2: `MetricPlan` gana `knowledgeLookup`; auditado como
+      `execution_plan = { metric, knowledge_lookup }`.)
+- [x] Validar limites y tipos del `execution_plan`. (Corte 2: la metrica por
+      `validateMetricQuery`, `knowledgeLookup` como string no vacio.)
+- [x] Despachar subtareas en paralelo cuando el prompt combine metrica y
+      conocimiento. (Corte 2: `Promise.all([runQuery, retrieveKnowledge])`.)
+- [x] Sintetizar una sola respuesta con artefactos de metricas y narrativa documental
+      con citas. (Corte 2: `composeCombinedAnswer`, `answer_source='mixed'`; degrada
+      a metrica sola con aviso si no hay evidencia documental.)
 
 ## Fase 8: Core Internal API Para `mirador-mcp`
 
@@ -240,8 +244,9 @@ Fuentes: `proposal.md`, `data-assumptions.md`, ADR-0006, ADR-0007 y ADR-0008.
       `question`, `metric`, `fallback_reason`, `missing_metric_or_dimension`,
       `generated_sql`, `validated_sql`, hashes de SQL, `validation_status` y timestamps.
       (Ver ADR-0008; una fila por request en todos los caminos.)
-- [~] Extender auditoria con `execution_plan` y `retrieved_doc_ids` para RAG.
-  (Columnas creadas nullable; se pueblan en Fase 7.)
+- [x] Extender auditoria con `execution_plan` y `retrieved_doc_ids` para RAG.
+      (`retrieved_doc_ids` se puebla en el camino documental/combinado; `execution_plan`
+      en el camino combinado metrica+conocimiento. Ver ADR-0009/0010.)
 - [x] Emitir log `warn` `analytics.fallback_sql_triggered` cuando se use fallback SQL.
 - [x] Sanitizar o hashear SQL/preguntas cuando contengan valores sensibles.
       (Hash sha256 de `generated_sql`/`validated_sql`; redaccion fina diferida a multi-rol.)

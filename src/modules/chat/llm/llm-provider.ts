@@ -70,13 +70,23 @@ export type KnowledgeChunkRef = { title: string; locator: string; content: strin
 
 export type KnowledgeAnswerInput = { question: string; chunks: KnowledgeChunkRef[] };
 
+// Sintesis combinada: teje las cifras de una metrica con la evidencia documental
+// en una sola respuesta ejecutiva con citas.
+export type CombinedAnswerInput = {
+  question: string;
+  metricLabel: string;
+  rows: unknown[];
+  context: string;
+  chunks: KnowledgeChunkRef[];
+};
+
 export type ChatHistoryMessage = { role: 'USER' | 'ASSISTANT'; content: string };
 
 // El planner devuelve un candidato de MetricQuery (a validar aguas abajo) cuando
 // la pregunta mapea a una metrica, una aclaracion especifica cuando no, una
 // respuesta conversacional para saludos, o `knowledge` para preguntas documentales.
 export type MetricPlan =
-  | { kind: 'metric'; query: Record<string, unknown> }
+  | { kind: 'metric'; query: Record<string, unknown>; knowledgeLookup: string | null }
   | { kind: 'clarify'; message: string }
   | { kind: 'conversational'; message: string }
   | { kind: 'knowledge' };
@@ -95,6 +105,7 @@ export type LlmProvider = {
   editChartSpec(input: ChartEditInput): Promise<ChartEditResult>;
   generateFallbackSql(input: FallbackSqlInput): Promise<{ sql: string } | null>;
   composeKnowledgeAnswer(input: KnowledgeAnswerInput): Promise<string>;
+  composeCombinedAnswer(input: CombinedAnswerInput): Promise<string>;
 };
 
 export function createLlmProvider(): LlmProvider {

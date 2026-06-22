@@ -25,9 +25,19 @@ lo pedido en el prompt.
 `metadata.answer_source` indica el origen de la respuesta: `semantic` (camino
 determinista del catalogo), `fallback_sql` (SQL exploratorio gobernado, viene con
 una alerta de baja confianza en `warnings`), `knowledge` (respuesta documental RAG,
-trae `citations`) o `null` (aclaracion/conversacional). El fallback se desactiva con
+trae `citations`), `mixed` (respuesta combinada metrica + conocimiento: artefacto de
+la metrica + narrativa documental con `citations` en un solo turno) o `null`
+(aclaracion/conversacional). El fallback se desactiva con
 `FALLBACK_SQL_ENABLED=false`. Ver
 [ADR 0007](../adrs/0007-adopt-governed-sql-fallback-with-low-confidence-signaling.md).
+
+Cuando el prompt combina una metrica y una pregunta documental (p.ej. "¿como varió
+el MRR y que dice la politica de delivery?"), el orquestador despacha ambas
+subtareas en paralelo y sintetiza una sola respuesta (`answer_source='mixed'`). La
+auditoria registra `execution_plan = { metric, knowledge_lookup }` y los
+`retrieved_doc_ids`. Si la parte documental no encuentra evidencia, degrada a la
+metrica sola con un aviso y `answer_source='semantic'`. Ver
+[ADR 0010](../adrs/0010-adopt-multi-intent-execution-plan-combining-metric-and-knowledge.md).
 
 Para preguntas documentales, la respuesta incluye `citations`
 (`{ document_id, title, locator }[]`); si no hay evidencia, devuelve un aviso y
