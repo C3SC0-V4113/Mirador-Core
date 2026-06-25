@@ -56,6 +56,9 @@ const envSchema = z
     CORE_SERVICE_TOKEN: z.string().min(12).optional(),
     JWT_SECRET: z.string().min(32).default(DEV_JWT_SECRET),
     SESSION_COOKIE_NAME: z.string().min(1).default('mirador_session'),
+    // 'lax' si la web comparte dominio registrable con el core (subdominios); 'none'
+    // si la web es cross-site (otro dominio). 'none' implica Secure obligatorio.
+    SESSION_COOKIE_SAMESITE: z.enum(['lax', 'none']).default('lax'),
     SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
     CEO_EMAIL: z.email().default('ceo@mirador.local'),
     CEO_PASSWORD_HASH: z.string().startsWith('$argon2').default(DEV_CEO_PASSWORD_HASH),
@@ -64,6 +67,9 @@ const envSchema = z
     ANALYTICS_MAX_LIMIT: z.coerce.number().int().positive().default(500),
     LLM_PROVIDER: z.enum(['openai', 'stub']).default('stub'),
     OPENAI_API_KEY: z.string().min(1).optional(),
+    // baseURL opcional para las llamadas a OpenAI. En produccion apunta al AI Gateway
+    // de Cloudflare (cache + observabilidad + costos); si no esta, se usa api.openai.com.
+    OPENAI_BASE_URL: z.url().optional(),
     ORCHESTRATOR_MODEL: z.string().min(1).default('gpt-5.2'),
     LIGHT_MODEL: z.string().min(1).default('gpt-5-mini'),
     // Solo se desactiva con el literal "false"; cualquier otro valor (o ausencia)
@@ -75,6 +81,13 @@ const envSchema = z
       .transform((value) => value.toLowerCase() !== 'false'),
     EMBEDDING_PROVIDER: z.enum(['openai', 'stub']).default('stub'),
     EMBEDDING_MODEL: z.string().min(1).default('text-embedding-3-small'),
+    // Secreto compartido que Cloudflare inyecta como header `x-mirador-origin`. El
+    // origin guard exige que coincida en las rutas publicas (/api/*) en produccion,
+    // cerrando el bypass directo al origen de Railway. Requerido en produccion.
+    CLOUDFLARE_ORIGIN_SECRET: z.string().min(16).optional(),
+    // Origen del frontend (mirador-web) para habilitar CORS con credenciales cuando
+    // la web es cross-origin. Si no esta, CORS queda cerrado (solo same-origin).
+    WEB_ORIGIN: z.url().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.LLM_PROVIDER === 'openai' && value.OPENAI_API_KEY === undefined) {
@@ -123,6 +136,15 @@ const envSchema = z
         code: 'custom',
         path: ['CORE_SERVICE_TOKEN'],
         message: 'CORE_SERVICE_TOKEN must be set to a strong production token in production.',
+      });
+    }
+
+    if (value.CLOUDFLARE_ORIGIN_SECRET === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CLOUDFLARE_ORIGIN_SECRET'],
+        message:
+          'CLOUDFLARE_ORIGIN_SECRET must be set in production to validate that traffic comes through Cloudflare.',
       });
     }
   });

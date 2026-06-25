@@ -1,8 +1,16 @@
 import type { FastifyPluginCallback, FastifyRequest } from 'fastify';
 
 import { env } from '../../config/env.js';
-import { sendFoundationOnly } from '../../shared/http/foundation-response.js';
+import { createAuditRepository } from '../audit/audit.repositories.js';
+import { createStatelessChatRepository } from '../chat/chat.repositories.js';
+import { handleChatMessage } from '../chat/chat.service.js';
+import { createLlmProvider } from '../chat/llm/llm-provider.js';
+import { createEmbeddingProvider } from '../knowledge/embeddings/embedding-provider.js';
+import { createKnowledgeRepository } from '../knowledge/knowledge.repositories.js';
+import { runReadonlyQuery } from '../sql-safety/readonly-query.service.js';
 import { buildBusinessSchemaContext } from '../schema-catalog/metric-catalog.js';
+import { toCoreAskResult } from './internal-core.mapper.js';
+import { internalAskBodySchema } from './internal-core.schemas.js';
 
 function isAuthorizedInternalRequest(request: FastifyRequest) {
   const authorization = request.headers.authorization;
@@ -41,9 +49,37 @@ export const internalCoreRoutes: FastifyPluginCallback = (app, _options, done) =
     next();
   });
 
-  app.post('/internal/core/ask', (_request, reply) =>
-    sendFoundationOnly(reply, 'internal-core.ask'),
-  );
+  // Expone el MISMO pipeline gobernado que el chat web (capa semantica, SQL Safety,
+  // read-only, auditoria) a servicios internos como mirador-mcp. Stateless: usa el
+  // repositorio sin persistencia, audita con clientType=MCP y devuelve un contrato
+  // data-first (CoreAskResult), no el ChatResponse acoplado al frontend.
+  app.post('/internal/core/ask', async (request, reply) => {
+    const body = internalAskBodySchema.parse(request.body);
+
+    const response = await handleChatMessage(
+      {
+        repository: createStatelessChatRepository(),
+        llm: createLlmProvider(),
+        runQuery: (sql) => runReadonlyQuery(app.prismaReadonly, sql),
+        fallbackEnabled: env.FALLBACK_SQL_ENABLED,
+        logger: app.log,
+        audit: createAuditRepository(app.prisma),
+        knowledge: createKnowledgeRepository(app.prisma),
+        embeddings: createEmbeddingProvider(),
+      },
+      {
+        userId: null,
+        message: body.question,
+        intentMode: body.intent_mode,
+        traceId: request.traceId,
+        clientType: 'MCP',
+        path: '/internal/core/ask',
+      },
+    );
+
+    return reply.send(toCoreAskResult(response));
+  });
+
   app.get('/internal/core/schema-catalog', (_request, reply) =>
     reply.send(buildBusinessSchemaContext()),
   );

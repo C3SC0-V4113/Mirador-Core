@@ -5,7 +5,8 @@ import type { EmbeddingProvider } from './embedding-provider.js';
 
 export function createOpenAiEmbeddingProvider(): EmbeddingProvider {
   // OPENAI_API_KEY esta garantizado por el superRefine cuando EMBEDDING_PROVIDER=openai.
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  // baseURL opcional: apunta al AI Gateway de Cloudflare cuando esta seteado.
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: env.OPENAI_BASE_URL });
 
   return {
     async embed(texts) {

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   type ArtifactType,
   type ChatRole,
@@ -70,7 +72,7 @@ export type ConversationDetail = {
 };
 
 export type ChatRepository = {
-  ensureConversation(userId: string, conversationId: string | undefined): Promise<string>;
+  ensureConversation(userId: string | null, conversationId: string | undefined): Promise<string>;
   insertMessage(input: InsertMessageInput): Promise<{ id: string }>;
   insertArtifact(input: InsertArtifactInput): Promise<{ id: string }>;
   listRecentMessages(
@@ -84,9 +86,39 @@ export type ChatRepository = {
   updateArtifactChartSpec(artifactId: string, chartSpec: Prisma.InputJsonValue): Promise<void>;
 };
 
+// Repositorio sin estado para llamadas service-to-service (mirador-mcp via
+// /internal/core/ask). El MCP es una invocacion de herramienta one-shot: no
+// persiste conversaciones ni mensajes (mantiene limpia la lista de hilos web del
+// CEO) y no tiene memoria de turnos previos. Cumple el contrato devolviendo ids
+// sinteticos; los metodos de hilos/mini-chat de la web nunca se alcanzan por esta
+// via y por eso lanzan si se invocan.
+export function createStatelessChatRepository(): ChatRepository {
+  const notSupported = (operation: string) => (): never => {
+    throw new Error(`ChatRepository.${operation} is not available in a stateless context.`);
+  };
+
+  return {
+    ensureConversation: () => Promise.resolve(randomUUID()),
+    insertMessage: () => Promise.resolve({ id: randomUUID() }),
+    insertArtifact: () => Promise.resolve({ id: randomUUID() }),
+    listRecentMessages: () => Promise.resolve([]),
+    listConversations: notSupported('listConversations'),
+    getConversationDetail: notSupported('getConversationDetail'),
+    renameConversation: notSupported('renameConversation'),
+    getArtifactForUser: notSupported('getArtifactForUser'),
+    updateArtifactChartSpec: notSupported('updateArtifactChartSpec'),
+  };
+}
+
 export function createChatRepository(prisma: PrismaClient): ChatRepository {
   return {
     async ensureConversation(userId, conversationId) {
+      // El repo que persiste requiere un usuario (FK Conversation.userId). Las
+      // llamadas de sistema sin usuario usan createStatelessChatRepository.
+      if (userId === null) {
+        throw new Error('userId is required to persist a conversation.');
+      }
+
       if (conversationId !== undefined) {
         const existing = await prisma.conversation.findFirst({
           where: { id: conversationId, userId },

@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "description": "Backend core for the Mirador CEO analytics system.",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "npm run lint:code && npm run lint:markdown && npm run lint:yaml",
     "lint:code": "eslint .",

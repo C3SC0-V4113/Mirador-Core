@@ -67,7 +67,47 @@ Authorization: Bearer <CORE_SERVICE_TOKEN>
 ```
 
 Si `CORE_SERVICE_TOKEN` no esta configurado, responden
-`503 INTERNAL_CORE_NOT_CONFIGURED`.
+`503 INTERNAL_CORE_NOT_CONFIGURED`. Con token ausente o invalido responden
+`401 INTERNAL_CORE_UNAUTHORIZED`.
 
-`/internal/core/ask` sigue reservado. `/internal/core/schema-catalog` devuelve el
-`BusinessSchemaContext` allowlisted para fallback SQL interno.
+`POST /internal/core/ask` ejecuta el MISMO pipeline gobernado que el chat web (capa
+semantica, SQL Safety, read-only, fallback, conocimiento, auditoria). Body:
+`{ question: string, intent_mode?: ... }` (sin `conversation_id`: las llamadas son
+one-shot, sin estado). No persiste `Conversation`/`ChatMessage`; audita una fila con
+`client_type='MCP'` y `path='/internal/core/ask'`.
+
+A diferencia del chat web, NO devuelve el `ChatResponse` (acoplado al frontend:
+`artifacts` con payload de render, `chart_spec`, `quick_actions`, `intent_mode`).
+Devuelve un contrato data-first `CoreAskResult`, agnostico de UI:
+
+```text
+{
+  trace_id, answer, answer_source, metric, data,
+  source_views, validated_sql,
+  chart_hint: { type, x, y } | null,   // hint de grafica neutral y portable
+  citations, warnings, suggested_questions
+}
+```
+
+`GET /internal/core/schema-catalog` devuelve el `BusinessSchemaContext` allowlisted.
+
+Las tools MCP del producto se sirven como facetas de estas dos rutas:
+`ask_company_data`→`ask`; `describe_business_schema`→`schema-catalog`;
+`run_readonly_query`→`validated_sql`+`data`; `generate_chart_spec`→`chart_hint`;
+`search_company_knowledge`→`citations`; `suggest_executive_questions`→
+`suggested_questions`. Ver
+[ADR 0011](../adrs/0011-expose-governed-core-pipeline-via-internal-service-to-service-api.md).
+
+`CORE_INTERNAL_URL` es el hostname interno (Railway) que `mirador-mcp` usa para
+alcanzar al core; lo consume el MCP, no `mirador-core`.
+
+## Borde de produccion
+
+En produccion las rutas publicas `/api/*` entran por el Web API Gateway de Cloudflare,
+que inyecta el header `x-mirador-origin: <CLOUDFLARE_ORIGIN_SECRET>`. El origin guard
+rechaza con `403 ORIGIN_FORBIDDEN` cualquier request a `/api/*` que no lo traiga
+(anti-bypass del origen Railway). `/health` y `/internal/*` quedan exentos: el primero
+lo usa el healthcheck interno; el segundo viaja por la red privada de Railway. Las
+llamadas a OpenAI salen por el AI Gateway de Cloudflare cuando `OPENAI_BASE_URL` esta
+configurada. Ver [ADR 0012](../adrs/0012-adopt-railway-cloudflare-deployment-topology.md)
+y `docs/deploy/railway-cloudflare.md`.

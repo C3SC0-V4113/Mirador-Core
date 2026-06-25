@@ -112,7 +112,9 @@ const NARRATIVE_SYSTEM_PROMPT = [
 
 export function createOpenAiLlmProvider(): LlmProvider {
   // env.OPENAI_API_KEY esta garantizado por el superRefine cuando LLM_PROVIDER=openai.
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  // baseURL opcional: si esta seteado apunta al AI Gateway de Cloudflare; si es
+  // undefined el SDK usa api.openai.com (sin impacto en dev).
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: env.OPENAI_BASE_URL });
 
   return {
     async planMetricQuery(

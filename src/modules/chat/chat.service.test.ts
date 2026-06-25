@@ -9,6 +9,8 @@ import type {
   InsertArtifactInput,
   InsertMessageInput,
 } from './chat.repositories.js';
+import { createStatelessChatRepository } from './chat.repositories.js';
+import { toCoreAskResult } from '../internal-core/internal-core.mapper.js';
 import {
   editArtifactVisualization,
   getConversationDetail,
@@ -928,5 +930,79 @@ describe('combined metric + knowledge', () => {
     expect(response.metadata.answer_source).toBe('semantic');
     expect(response.warnings.some((w) => w.includes('soporte documental'))).toBe(true);
     expect(response.citations).toEqual([]);
+  });
+});
+
+describe('internal-core ask pipeline (stateless, MCP)', () => {
+  it('runs the governed pipeline statelessly, audits as MCP and projects a UI-agnostic result', async () => {
+    const { audit, rows } = createFakeAudit();
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({ kind: 'metric', query: { metric: 'mrr' }, knowledgeLookup: null }),
+      composeNarrative: () => Promise.resolve('MRR narrative'),
+    });
+
+    const response = await handleChatMessage(
+      {
+        repository: createStatelessChatRepository(),
+        llm,
+        runQuery: runQueryStub,
+        audit,
+      },
+      {
+        userId: null,
+        message: '¿cómo va el MRR?',
+        traceId: 'trace-mcp',
+        clientType: 'MCP',
+        path: '/internal/core/ask',
+      },
+    );
+
+    const result = toCoreAskResult(response);
+
+    // Gobierno + datos presentes.
+    expect(result.answer).toBe('MRR narrative');
+    expect(result.metric).toBe('mrr');
+    expect(result.data.length).toBeGreaterThan(0);
+    expect(result.source_views).toContain('ceo_revenue_summary');
+    expect(result.validated_sql).not.toBeNull();
+    expect(result.chart_hint).not.toBeNull();
+
+    // El contrato MCP NO filtra nada del frontend web.
+    expect(result).not.toHaveProperty('artifacts');
+    expect(result).not.toHaveProperty('quick_actions');
+    expect(result).not.toHaveProperty('conversation_id');
+    expect(result).not.toHaveProperty('intent_mode');
+
+    // Auditoria como MCP, sin usuario web.
+    expect(rows[0]?.clientType).toBe('MCP');
+    expect(rows[0]?.userId).toBeNull();
+    expect(rows[0]?.path).toBe('/internal/core/ask');
+  });
+});
+
+describe('createStatelessChatRepository', () => {
+  it('returns synthetic ids and no history without persisting', async () => {
+    const repository = createStatelessChatRepository();
+
+    const conversationId = await repository.ensureConversation(null, undefined);
+    const message = await repository.insertMessage({
+      conversationId,
+      role: 'USER',
+      content: 'hi',
+      intentMode: null,
+      traceId: 'trace',
+    });
+
+    expect(conversationId).toMatch(/[0-9a-f-]{36}/u);
+    expect(message.id).toMatch(/[0-9a-f-]{36}/u);
+    await expect(repository.listRecentMessages(conversationId)).resolves.toEqual([]);
+  });
+
+  it('throws on conversation-thread operations not available without state', () => {
+    const repository = createStatelessChatRepository();
+
+    expect(() => repository.listConversations('user-1')).toThrow(/stateless/u);
+    expect(() => repository.getConversationDetail('c', 'u')).toThrow(/stateless/u);
   });
 });

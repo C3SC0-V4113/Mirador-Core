@@ -139,7 +139,9 @@ const EXECUTION_ERROR_MESSAGE =
   'No pude completar la consulta sobre los datos en este momento. Por favor, inténtalo de nuevo en unos minutos.';
 
 export type HandleChatInput = {
-  userId: string;
+  // null para llamadas de sistema/service-to-service (MCP): query_audit_log.user_id
+  // es nullable y no es FK; el repo stateless ignora el userId.
+  userId: string | null;
   message: string;
   conversationId?: string;
   intentMode?: IntentModeInput;

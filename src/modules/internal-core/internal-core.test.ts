@@ -16,4 +16,33 @@ describe('internal core routes', () => {
 
     await app.close();
   });
+
+  it('rejects an invalid bearer token on core ask', async () => {
+    const app = await buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/internal/core/ask',
+      headers: { authorization: 'Bearer definitely-not-the-token' },
+      payload: { question: '¿cómo va el MRR?' },
+    });
+
+    // 401 cuando el token esta configurado; 503 si el servicio no esta configurado.
+    expect(response.statusCode).toBe(env.CORE_SERVICE_TOKEN === undefined ? 503 : 401);
+
+    await app.close();
+  });
+
+  it('guards the schema-catalog route behind the same service token', async () => {
+    const app = await buildApp();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/internal/core/schema-catalog',
+    });
+
+    expect(response.statusCode).toBe(env.CORE_SERVICE_TOKEN === undefined ? 503 : 401);
+
+    await app.close();
+  });
 });

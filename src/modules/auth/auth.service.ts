@@ -21,11 +21,18 @@ export type AuthService = {
   revokeToken(token: string): Promise<void>;
 };
 
-export function buildSessionCookieOptions(nodeEnv: string, maxAgeSeconds: number) {
+export function buildSessionCookieOptions(
+  nodeEnv: string,
+  maxAgeSeconds: number,
+  sameSite: 'lax' | 'none' = 'lax',
+) {
   return {
     httpOnly: true,
-    sameSite: 'lax' as const,
-    secure: nodeEnv === 'production',
+    // 'lax' sirve cuando la web comparte sitio registrable con el core (subdominios);
+    // 'none' es necesario cuando la web vive en otro dominio (cross-site). El browser
+    // exige Secure con SameSite=None, por eso se fuerza secure en ese caso.
+    sameSite,
+    secure: nodeEnv === 'production' || sameSite === 'none',
     path: '/',
     maxAge: maxAgeSeconds,
   };

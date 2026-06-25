@@ -17,7 +17,11 @@ export const authRoutes: FastifyPluginCallback = (app, _options, done) => {
       .setCookie(
         env.SESSION_COOKIE_NAME,
         result.token,
-        buildSessionCookieOptions(env.NODE_ENV, env.SESSION_TTL_SECONDS),
+        buildSessionCookieOptions(
+          env.NODE_ENV,
+          env.SESSION_TTL_SECONDS,
+          env.SESSION_COOKIE_SAMESITE,
+        ),
       )
       .send({
         user: result.user,

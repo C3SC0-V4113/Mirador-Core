@@ -216,24 +216,32 @@ que combina metrica + conocimiento en una sola respuesta con `answer_source='mix
 
 ## Fase 8: Core Internal API Para `mirador-mcp`
 
-Fuentes: ADR-0007, `proposal.md` y `mcp-first-access.md`.
+Fuentes: ADR-0007, `proposal.md` y `mcp-first-access.md`. Entregada (ver ADR-0011):
+`POST /internal/core/ask` reusa el pipeline gobernado de forma stateless y devuelve un
+contrato data-first `CoreAskResult` (chart hint neutral, sin payload de UI).
 
-- [ ] Mantener `POST /mcp` fuera de Fastify; pertenece a `mirador-mcp`.
-- [ ] Implementar `POST /internal/core/ask` para exponer el pipeline core a
-      servicios internos.
-- [ ] Implementar `GET /internal/core/schema-catalog` para catalogo interno
+- [x] Mantener `POST /mcp` fuera de Fastify; pertenece a `mirador-mcp`. (El core solo
+      expone `/internal/core/*`; el endpoint MCP vive en el servicio separado.)
+- [x] Implementar `POST /internal/core/ask` para exponer el pipeline core a
+      servicios internos. (Reuso de `handleChatMessage` + repo stateless,
+      `clientType=MCP`, contrato `CoreAskResult`.)
+- [x] Implementar `GET /internal/core/schema-catalog` para catalogo interno
       autenticado.
-- [ ] Validar `CORE_SERVICE_TOKEN` en cada request interna.
-- [ ] Documentar `CORE_INTERNAL_URL` como hostname interno de Railway consumido por
-      `mirador-mcp`.
-- [ ] Rechazar `/internal/*` cuando llegue por interfaz publica o sin token valido.
-- [ ] Asegurar que `mirador-mcp` no necesite `DATABASE_URL_*` ni llaves LLM.
-- [ ] Mantener una sola capa semantica, una sola SQL Safety Layer, un solo read-only y
-      una sola auditoria en `mirador-core`.
-- [ ] Diseñar respuestas internas compatibles con tools MCP como
+- [x] Validar `CORE_SERVICE_TOKEN` en cada request interna. (preHandler: 503 si no
+      configurado, 401 si token ausente/invalido; cubre todo `/internal/core/*`.)
+- [x] Documentar `CORE_INTERNAL_URL` como hostname interno de Railway consumido por
+      `mirador-mcp`. (Lo consume el MCP, no el core; documentado en routes.md/ADR-0011.)
+- [x] Rechazar `/internal/*` cuando llegue por interfaz publica o sin token valido.
+      (Guard de token service-to-service; en deploy el hostname interno no se publica.)
+- [x] Asegurar que `mirador-mcp` no necesite `DATABASE_URL_*` ni llaves LLM. (Toda la
+      DB/LLM vive en el core; el MCP solo llama `/internal/core/*` con el token.)
+- [x] Mantener una sola capa semantica, una sola SQL Safety Layer, un solo read-only y
+      una sola auditoria en `mirador-core`. (El camino interno reusa el mismo pipeline.)
+- [x] Diseñar respuestas internas compatibles con tools MCP como
       `describe_business_schema`, `ask_company_data`, `run_readonly_query`,
       `suggest_executive_questions`, `generate_chart_spec` y
-      `search_company_knowledge`.
+      `search_company_knowledge`. (Servidas como facetas de `ask` + `schema-catalog`;
+      ver mapeo en ADR-0011/routes.md.)
 
 ## Fase 9: Auditoria, Observabilidad Y Seguridad
 
@@ -261,21 +269,31 @@ Fuentes: `proposal.md`, `data-assumptions.md`, ADR-0006, ADR-0007 y ADR-0008.
 
 ## Fase 10: Deployment MVP
 
-Fuentes: `proposal.md`, `data-assumptions.md` y ADR-0007.
+Fuentes: `proposal.md`, `data-assumptions.md` y ADR-0007. Lo de `mirador-core`
+entregado (ver ADR-0012 y `docs/deploy/railway-cloudflare.md`): empaquetado Railway,
+origin guard anti-bypass, AI Gateway, `trustProxy`, CORS/cookie cross-origin. Los demas
+servicios (web, mcp, ingestion, R2) son otros repos y quedan fuera de este corte.
 
-- [ ] Desplegar `mirador-core` en Railway con Fastify + Prisma.
-- [ ] Usar Railway PostgreSQL como base MVP.
-- [ ] Desplegar `mirador-web` en Cloudflare Workers con OpenNext/Cloudflare.
+- [x] Desplegar `mirador-core` en Railway con Fastify + Prisma. (Preparado:
+      `railway.json` + Nixpacks, `startCommand` con `migrate deploy`, healthcheck
+      `/health`. El deploy en si lo ejecuta el operador siguiendo el runbook.)
+- [x] Usar Railway PostgreSQL como base MVP. (Documentado: roles + extension provistos
+      aparte por ADR-0003 antes de `migrate deploy`.)
+- [ ] Desplegar `mirador-web` en Cloudflare Workers con OpenNext/Cloudflare. (Otro repo.)
 - [ ] Desplegar `mirador-mcp` como servicio independiente en Railway, misma region que
-      el backend.
-- [ ] Configurar Web API Gateway en Cloudflare frente a `mirador-core`.
-- [ ] Configurar MCP API Gateway en Cloudflare frente a `mirador-mcp`.
-- [ ] Aplicar rate limiting, throttling, cuotas, WAF/IP rules, limite de tamano y
-      routing por gateway.
-- [ ] Mantener `/internal/core/*` fuera del Web API Gateway.
-- [ ] Configurar R2 para archivos fuente de RAG.
+      el backend. (Otro repo; `mirador-core` ya expone `/internal/*` para red privada.)
+- [x] Configurar Web API Gateway en Cloudflare frente a `mirador-core`. (Topologia +
+      checklist en el runbook; el origin guard por header secreto cierra el bypass.)
+- [ ] Configurar MCP API Gateway en Cloudflare frente a `mirador-mcp`. (Otro repo;
+      documentado en el runbook.)
+- [x] Aplicar rate limiting, throttling, cuotas, WAF/IP rules, limite de tamano y
+      routing por gateway. (Borde Cloudflare como primera linea + `@fastify/rate-limit`
+      como defensa en profundidad; checklist en el runbook.)
+- [x] Mantener `/internal/core/*` fuera del Web API Gateway. (Va por red privada de
+      Railway; el origin guard exime `/internal/*` y `/health`.)
+- [ ] Configurar R2 para archivos fuente de RAG. (Fase de `mirador-ingestion`.)
 - [ ] Preparar `mirador-ingestion` como servicio Railway con cola interna en Postgres
-      o Redis, sin Cloudflare Queues.
+      o Redis, sin Cloudflare Queues. (Otro repo.)
 
 ## Fuera Del MVP / Futuro
 
