@@ -23,8 +23,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed/index.ts",
     "knowledge:ingest": "tsx scripts/ingest-knowledge.ts",
-    "postinstall": "prisma generate",
-    "prepare": "husky"
+    "postinstall": "prisma generate"
   },
   "lint-staged": {
     "*.{js,ts,json,md,yml,yaml}": [
