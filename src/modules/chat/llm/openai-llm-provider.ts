@@ -24,7 +24,7 @@ const PLANNER_SYSTEM_PROMPT = [
   'Traduces la pregunta del usuario a un MetricQuery JSON usando UNICAMENTE el',
   'catalogo semantico provisto. No inventes metricas, dimensiones ni filtros.',
   'Responde solo con JSON valido con la forma:',
-  '{ "metric": string|null, "clarification": string|null, "conversational": string|null, "knowledge": boolean|null, "knowledge_query": string|null, "dimensions": string[], "filters": [{"field":string,"operator":"eq|neq|gte|lte|gt|lt|in","value":string|number|boolean|array}], "time_range": {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}|null, "compare_to": "previous_period"|"previous_year"|null, "limit": number }.',
+  '{ "metric": string|null, "clarification": string|null, "conversational": string|null, "knowledge": boolean|null, "knowledge_query": string|null, "visual_kind":"default"|"simple"|"dynamic", "visual_instruction":string|null, "dimensions": string[], "filters": [{"field":string,"operator":"eq|neq|gte|lte|gt|lt|in","value":string|number|boolean|array}], "time_range": {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}|null, "compare_to": "previous_period"|"previous_year"|null, "limit": number }.',
   '',
   '--- CONOCIMIENTO DOCUMENTAL ---',
   'Si la pregunta es documental (vision, mision, valores, politicas, procesos,',
@@ -37,6 +37,14 @@ const PLANNER_SYSTEM_PROMPT = [
   'Y ADEMAS "knowledge_query" con UNA frase que capture solo la parte documental.',
   'Usa "knowledge_query" solo cuando haya de verdad una parte documental ademas de',
   'la metrica; si la pregunta es puramente de metrica, dejalo en null.',
+  'Usa visual_kind="dynamic" SOLO cuando la visual solicitada no pueda representarse',
+  'correctamente con linea, barras, barras apiladas reales, area o pastel simples:',
+  'por ejemplo heatmap/mapa de calor, scatter/dispersion, histograma real,',
+  'distribucion con binning numerico, capas, facetas, small multiples, composicion,',
+  'combinaciones, apilado normalizado, leyendas/color/tooltips ricos o mas',
+  'dimensiones que el contrato simple. Copia la',
+  'intencion visual en visual_instruction. Para graficas simples usa "simple"; si',
+  'el usuario no especifica una visual, usa "default".',
   '',
   '--- INSTRUCCIONES PARA RESPUESTAS NO-COMERCIALES ---',
   'Si el usuario te saluda, agradece o pregunta sobre tus capacidades (no es una',
@@ -194,6 +202,8 @@ export function createOpenAiLlmProvider(): LlmProvider {
         'conversational',
         'knowledge',
         'knowledge_query',
+        'visual_kind',
+        'visual_instruction',
       ]);
 
       for (const [key, value] of Object.entries(parsed)) {
@@ -208,7 +218,18 @@ export function createOpenAiLlmProvider(): LlmProvider {
           ? parsed.knowledge_query
           : null;
 
-      return { kind: 'metric', query, knowledgeLookup };
+      const visualIntent =
+        parsed.visual_kind === 'dynamic'
+          ? {
+              kind: 'dynamic' as const,
+              instruction:
+                typeof parsed.visual_instruction === 'string' ? parsed.visual_instruction : prompt,
+            }
+          : parsed.visual_kind === 'simple'
+            ? ({ kind: 'simple' } as const)
+            : ({ kind: 'default' } as const);
+
+      return { kind: 'metric', query, knowledgeLookup, visualIntent };
     },
 
     async composeNarrative(input: NarrativeInput) {
@@ -219,7 +240,7 @@ export function createOpenAiLlmProvider(): LlmProvider {
           { role: 'system', content: narrativeDepthInstruction(input.intentMode) },
           {
             role: 'user',
-            content: `Pregunta: ${input.question}\nMetrica: ${input.metricLabel} (formato ${input.format})\nFiltros y periodo aplicados: ${input.context === '' ? 'ninguno' : input.context}\nDatos (JSON): ${JSON.stringify(input.rows)}`,
+            content: `Pregunta: ${input.question}\nMetrica: ${input.metricLabel} (formato ${input.format})\nEtiquetas de campos (JSON): ${JSON.stringify(input.fieldLabels)}\nFiltros y periodo aplicados: ${input.context === '' ? 'ninguno' : input.context}\nDatos con claves crudas (JSON): ${JSON.stringify(input.rows)}`,
           },
         ],
       });
@@ -235,7 +256,7 @@ export function createOpenAiLlmProvider(): LlmProvider {
           { role: 'system', content: PLAN_SYSTEM_PROMPT },
           {
             role: 'user',
-            content: `Pregunta: ${input.question}\nMetrica: ${input.metricLabel}\nFiltros y periodo: ${input.context === '' ? 'ninguno' : input.context}\nDatos (JSON): ${JSON.stringify(input.rows)}`,
+            content: `Pregunta: ${input.question}\nMetrica: ${input.metricLabel}\nEtiquetas de campos (JSON): ${JSON.stringify(input.fieldLabels)}\nFiltros y periodo: ${input.context === '' ? 'ninguno' : input.context}\nDatos con claves crudas (JSON): ${JSON.stringify(input.rows)}`,
           },
         ],
       });
@@ -279,7 +300,7 @@ export function createOpenAiLlmProvider(): LlmProvider {
           },
           {
             role: 'user',
-            content: `Pregunta respondida: ${input.question}\nMétrica: ${input.metricLabel}\nFiltros y periodo: ${input.context === '' ? 'ninguno' : input.context}\nDatos (JSON): ${JSON.stringify(input.rows)}`,
+            content: `Pregunta respondida: ${input.question}\nMétrica: ${input.metricLabel}\nEtiquetas de campos (JSON): ${JSON.stringify(input.fieldLabels)}\nFiltros y periodo: ${input.context === '' ? 'ninguno' : input.context}\nDatos con claves crudas (JSON): ${JSON.stringify(input.rows)}`,
           },
         ],
       });
@@ -407,7 +428,7 @@ export function createOpenAiLlmProvider(): LlmProvider {
           { role: 'system', content: COMBINED_SYSTEM_PROMPT },
           {
             role: 'system',
-            content: `Metrica: ${input.metricLabel}. Filtros/periodo: ${input.context === '' ? 'ninguno' : input.context}. Datos (JSON): ${JSON.stringify(input.rows)}`,
+            content: `Metrica: ${input.metricLabel}. Etiquetas de campos (JSON): ${JSON.stringify(input.fieldLabels)}. Filtros/periodo: ${input.context === '' ? 'ninguno' : input.context}. Datos con claves crudas (JSON): ${JSON.stringify(input.rows)}`,
           },
           { role: 'system', content: `<context>\n${context}\n</context>` },
           { role: 'user', content: wrapUserContent(input.question) },
@@ -416,8 +437,69 @@ export function createOpenAiLlmProvider(): LlmProvider {
 
       return completion.choices[0]?.message.content ?? '';
     },
+
+    async generateDynamicChart(input) {
+      return generateVegaLiteBody(client, {
+        question: input.question,
+        instruction: input.instruction,
+        rows: input.rows,
+        fieldLabels: input.fieldLabels,
+      });
+    },
+
+    async editDynamicChart(input) {
+      return generateVegaLiteBody(client, {
+        question: input.question,
+        instruction: input.editInstruction,
+        rows: input.rows,
+        fieldLabels: input.fieldLabels,
+        currentSpec: input.currentSpec,
+      });
+    },
   };
 }
+
+async function generateVegaLiteBody(
+  client: OpenAI,
+  input: {
+    question: string;
+    instruction: string;
+    rows: unknown[];
+    fieldLabels: Record<string, string>;
+    currentSpec?: unknown;
+  },
+) {
+  const completion = await client.chat.completions.create({
+    model: env.LIGHT_MODEL,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: DYNAMIC_CHART_SYSTEM_PROMPT },
+      {
+        role: 'system',
+        content: `Pregunta: ${input.question}\nInstruccion visual: ${input.instruction}\nEtiquetas: ${JSON.stringify(input.fieldLabels)}\nFilas con claves crudas: ${JSON.stringify(input.rows)}\nSpec actual: ${JSON.stringify(input.currentSpec ?? null)}`,
+      },
+    ],
+  });
+
+  const content = completion.choices[0]?.message.content;
+  if (content === null || content === '') {
+    throw new Error('OpenAI returned an empty Vega-Lite specification.');
+  }
+
+  return JSON.parse(content) as unknown;
+}
+
+const DYNAMIC_CHART_SYSTEM_PROMPT = [
+  'Genera SOLO el cuerpo JSON de una especificacion Vega-Lite v6 segura.',
+  'No incluyas $schema ni data: el backend agrega data.values confiable.',
+  'Usa exclusivamente campos presentes en las filas y titulos de las etiquetas.',
+  'Marcas permitidas: area, bar, circle, line, point, rect, rule, square, tick.',
+  'Composiciones permitidas: layer, facet, hconcat, vconcat.',
+  'Transformaciones permitidas: aggregate, bin, fold, stack, timeUnit.',
+  'Prohibido: URLs, href, imagenes, expresiones, calculate, filter, signals, params,',
+  'selection, funciones personalizadas o recursos externos. Maximo 4 capas/vistas.',
+  'Incluye tooltips con etiquetas legibles. Responde solo JSON valido.',
+].join(' ');
 
 const COMBINED_SYSTEM_PROMPT = [
   'Eres un analista ejecutivo. La pregunta del CEO combina datos de una metrica y',

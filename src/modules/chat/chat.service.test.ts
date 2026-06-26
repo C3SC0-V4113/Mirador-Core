@@ -23,6 +23,7 @@ import { createStubLlmProvider } from './llm/stub-llm-provider.js';
 import type { AuditLogInput, AuditRepository } from '../audit/audit.repositories.js';
 import { createStubEmbeddingProvider } from '../knowledge/embeddings/stub-embedding-provider.js';
 import type { KnowledgeChunk, KnowledgeRepository } from '../knowledge/knowledge.repositories.js';
+import { buildValidatedDynamicChartSpec } from './dynamic-chart.js';
 
 function createFakeAudit() {
   const rows: AuditLogInput[] = [];
@@ -45,6 +46,8 @@ function makeLlm(overrides: Partial<LlmProvider>): LlmProvider {
     generateFallbackSql: () => Promise.resolve(null),
     composeKnowledgeAnswer: () => Promise.resolve(''),
     composeCombinedAnswer: () => Promise.resolve(''),
+    generateDynamicChart: () => Promise.resolve({ mark: 'point' }),
+    editDynamicChart: () => Promise.resolve({ mark: 'point' }),
     ...overrides,
   };
 }
@@ -99,6 +102,17 @@ function createFakeRepository() {
       const entry = artifactStore.get(artifactId);
       if (entry !== undefined) {
         entry.record = { ...entry.record, chartSpec };
+      }
+      return Promise.resolve();
+    },
+    updateArtifactVisualization(artifactId, input) {
+      const entry = artifactStore.get(artifactId);
+      if (entry !== undefined) {
+        entry.record = {
+          ...entry.record,
+          artifactType: input.artifactType,
+          chartSpec: input.chartSpec,
+        };
       }
       return Promise.resolve();
     },
@@ -1004,5 +1018,348 @@ describe('createStatelessChatRepository', () => {
 
     expect(() => repository.listConversations('user-1')).toThrow(/stateless/u);
     expect(() => repository.getConversationDetail('c', 'u')).toThrow(/stateless/u);
+  });
+});
+
+describe('dynamic charts and semantic labels', () => {
+  it('never generates DYNAMIC_CHART when the flag is absent', async () => {
+    const { repository } = createFakeRepository();
+    let generationCalls = 0;
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'mrr' },
+          knowledgeLookup: null,
+          visualIntent: { kind: 'dynamic', instruction: 'mapa de calor' },
+        }),
+      composeNarrative: () => Promise.resolve('MRR'),
+      generateDynamicChart: () => {
+        generationCalls += 1;
+        return Promise.resolve({ mark: 'rect' });
+      },
+    });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub },
+      { userId: 'user-1', message: 'MRR como mapa de calor', traceId: 'trace-dyn-off' },
+    );
+
+    expect(generationCalls).toBe(0);
+    expect(response.artifacts[0]?.type).toBe('TABLE');
+    expect(response.warnings.join(' ')).toContain('dos dimensiones');
+    expect(response.data).toHaveLength(2);
+  });
+
+  it('keeps /internal/core output Vega-Lite-free', async () => {
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'mrr' },
+          knowledgeLookup: null,
+          visualIntent: { kind: 'dynamic', instruction: 'scatter' },
+        }),
+      composeNarrative: () => Promise.resolve('MRR'),
+    });
+
+    const response = await handleChatMessage(
+      { repository: createStatelessChatRepository(), llm, runQuery: runQueryStub },
+      {
+        userId: null,
+        message: 'MRR como scatter',
+        traceId: 'trace-internal-dyn',
+        clientType: 'MCP',
+        path: '/internal/core/ask',
+      },
+    );
+    const internal = toCoreAskResult(response);
+
+    expect(internal.chart_hint).toBeNull();
+    expect(JSON.stringify(internal)).not.toContain('vega-lite');
+  });
+
+  it('keeps simple visual semantics on the existing CHART path', async () => {
+    const { repository } = createFakeRepository();
+    const response = await handleChatMessage(
+      { repository, llm: createStubLlmProvider(), runQuery: runQueryStub },
+      {
+        userId: 'user-1',
+        message: 'MRR como gráfico de líneas',
+        dynamicChartsEnabled: true,
+        traceId: 'trace-simple',
+      },
+    );
+
+    expect(response.artifacts[0]?.type).toBe('CHART');
+  });
+
+  it('routes real histogram requests to DYNAMIC_CHART when enabled', async () => {
+    const { repository } = createFakeRepository();
+    const response = await handleChatMessage(
+      { repository, llm: createStubLlmProvider(), runQuery: runQueryStub },
+      {
+        userId: 'user-1',
+        message: 'MRR como histograma',
+        dynamicChartsEnabled: true,
+        traceId: 'trace-histogram',
+      },
+    );
+
+    expect(response.artifacts[0]?.type).toBe('DYNAMIC_CHART');
+    expect(response.chart).toMatchObject({ mark: 'bar' });
+  });
+
+  it('falls back to TABLE with a warning for dynamic histogram requests when disabled', async () => {
+    const { repository } = createFakeRepository();
+    const response = await handleChatMessage(
+      { repository, llm: createStubLlmProvider(), runQuery: runQueryStub },
+      {
+        userId: 'user-1',
+        message: 'MRR como histograma',
+        traceId: 'trace-histogram-off',
+      },
+    );
+
+    expect(response.artifacts[0]?.type).toBe('TABLE');
+    expect(response.chart).toBeNull();
+    expect(response.warnings.join(' ')).toContain('Actívalas');
+  });
+
+  it('does not treat categorical risk distribution as a real histogram', async () => {
+    const { repository } = createFakeRepository();
+    let generationCalls = 0;
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'churn_rate', dimensions: ['risk_level'] },
+          knowledgeLookup: null,
+          visualIntent: { kind: 'dynamic', instruction: 'distribución de riesgo' },
+        }),
+      composeNarrative: () => Promise.resolve('Distribución de riesgo.'),
+      generateDynamicChart: () => {
+        generationCalls += 1;
+        return Promise.resolve({ mark: 'bar' });
+      },
+    });
+    const runQuery: RunReadonlyQuery = (sql) =>
+      Promise.resolve({
+        rows: [
+          { risk_level: 'high', health_score: '20' },
+          { risk_level: 'low', health_score: '90' },
+        ],
+        sourceViews: ['ceo_customer_health'],
+        validatedSql: sql,
+      });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery },
+      {
+        userId: 'user-1',
+        message: 'distribución de riesgo de churn',
+        dynamicChartsEnabled: true,
+        traceId: 'trace-categorical-distribution',
+      },
+    );
+
+    expect(generationCalls).toBe(0);
+    expect(response.artifacts[0]?.type).toBe('CHART');
+  });
+
+  it('routes scatter requests to DYNAMIC_CHART when fields support it', async () => {
+    const { repository } = createFakeRepository();
+    const response = await handleChatMessage(
+      { repository, llm: createStubLlmProvider(), runQuery: runQueryStub },
+      {
+        userId: 'user-1',
+        message: 'MRR como scatter',
+        dynamicChartsEnabled: true,
+        traceId: 'trace-scatter',
+      },
+    );
+
+    expect(response.artifacts[0]?.type).toBe('DYNAMIC_CHART');
+    expect(response.chart).toMatchObject({ mark: 'point' });
+  });
+
+  it('falls back to TABLE with a missing-data warning for one-dimensional heatmap requests', async () => {
+    const { repository } = createFakeRepository();
+    let generationCalls = 0;
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'mrr' },
+          knowledgeLookup: null,
+          visualIntent: { kind: 'dynamic', instruction: 'mapa de calor' },
+        }),
+      composeNarrative: () => Promise.resolve('MRR'),
+      generateDynamicChart: () => {
+        generationCalls += 1;
+        return Promise.resolve({ mark: 'rect' });
+      },
+    });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub },
+      {
+        userId: 'user-1',
+        message: 'MRR como mapa de calor',
+        dynamicChartsEnabled: true,
+        traceId: 'trace-dyn-on',
+      },
+    );
+
+    expect(generationCalls).toBe(0);
+    expect(response.artifacts[0]?.type).toBe('TABLE');
+    expect(response.chart).toBeNull();
+    expect(response.warnings.join(' ')).toContain('dos dimensiones');
+    expect(response.warnings.join(' ')).not.toContain('segura');
+  });
+
+  it('generates a validated heatmap when rows include two dimensions and a numeric measure', async () => {
+    const { repository, artifacts } = createFakeRepository();
+    let generationCalls = 0;
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'customer_revenue', dimensions: ['period_month', 'segment'] },
+          knowledgeLookup: null,
+          visualIntent: { kind: 'dynamic', instruction: 'mapa de calor por mes y segmento' },
+        }),
+      composeNarrative: () => Promise.resolve('Ingresos por mes y segmento.'),
+      generateDynamicChart: () => {
+        generationCalls += 1;
+        return Promise.resolve({
+          mark: 'rect',
+          encoding: {
+            x: { field: 'period_month', type: 'temporal' },
+            y: { field: 'segment', type: 'nominal' },
+            color: { field: 'revenue', type: 'quantitative' },
+          },
+        });
+      },
+    });
+    const runQuery: RunReadonlyQuery = (sql) =>
+      Promise.resolve({
+        rows: [
+          { period_month: '2026-04-01', segment: 'Enterprise', revenue: '42000.00' },
+          { period_month: '2026-04-01', segment: 'SMB', revenue: '18500.00' },
+          { period_month: '2026-05-01', segment: 'Enterprise', revenue: '43500.00' },
+        ],
+        sourceViews: ['ceo_customer_revenue'],
+        validatedSql: sql,
+      });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery },
+      {
+        userId: 'user-1',
+        message: 'Ingresos como mapa de calor por mes y segmento',
+        dynamicChartsEnabled: true,
+        traceId: 'trace-heatmap-positive',
+      },
+    );
+
+    expect(generationCalls).toBe(1);
+    expect(response.artifacts[0]?.type).toBe('DYNAMIC_CHART');
+    expect(response.chart).toMatchObject({ mark: 'rect' });
+    expect(artifacts[0]?.payload).toMatchObject({
+      labels: { period_month: 'Mes', segment: 'Segmento', revenue: 'Ingresos' },
+    });
+  });
+
+  it('falls back to TABLE when generated Vega-Lite is unsafe', async () => {
+    const { repository } = createFakeRepository();
+    const llm = makeLlm({
+      planMetricQuery: () =>
+        Promise.resolve({
+          kind: 'metric',
+          query: { metric: 'mrr' },
+          knowledgeLookup: null,
+          visualIntent: { kind: 'dynamic', instruction: 'scatter' },
+        }),
+      composeNarrative: () => Promise.resolve('MRR'),
+      generateDynamicChart: () =>
+        Promise.resolve({ data: { url: 'https://example.invalid/data.json' }, mark: 'point' }),
+    });
+
+    const response = await handleChatMessage(
+      { repository, llm, runQuery: runQueryStub },
+      {
+        userId: 'user-1',
+        message: 'MRR como scatter',
+        dynamicChartsEnabled: true,
+        traceId: 'trace-dyn-invalid',
+      },
+    );
+
+    expect(response.artifacts[0]?.type).toBe('TABLE');
+    expect(response.warnings.join(' ')).toContain('segura');
+  });
+
+  it('rejects URLs, expressions and excessive composition', () => {
+    const rows = [{ x: 'A', y: 1 }];
+
+    expect(() =>
+      buildValidatedDynamicChartSpec(
+        { data: { url: 'https://example.invalid/data.json' }, mark: 'point' },
+        rows,
+      ),
+    ).toThrow(/inline data.values/u);
+    expect(() =>
+      buildValidatedDynamicChartSpec(
+        { mark: 'point', transform: [{ calculate: 'datum.y * 2', as: 'double' }] },
+        rows,
+      ),
+    ).toThrow(/allowlisted/u);
+    expect(() =>
+      buildValidatedDynamicChartSpec(
+        { layer: Array.from({ length: 5 }, () => ({ mark: 'point' })) },
+        rows,
+      ),
+    ).toThrow(/too complex/u);
+  });
+
+  it('preserves the previous dynamic spec when regeneration is invalid', async () => {
+    const fake = createFakeRepository();
+    const oldSpec = {
+      $schema: 'https://vega.github.io/schema/vega-lite/v6.json',
+      data: { values: [{ period_month: '2026-05-01', mrr: '62700.00' }] },
+      mark: 'point',
+      encoding: { x: { field: 'period_month' }, y: { field: 'mrr' } },
+    };
+    fake.artifactStore.set('dynamic-1', {
+      userId: 'user-1',
+      record: {
+        id: 'dynamic-1',
+        artifactType: 'DYNAMIC_CHART',
+        chartSpec: oldSpec,
+        payload: {
+          rows: [{ period_month: '2026-05-01', mrr: '62700.00' }],
+          labels: { period_month: 'Mes', mrr: 'MRR' },
+        },
+        sourceViews: ['ceo_revenue_summary'],
+      },
+    });
+    const llm = makeLlm({
+      editDynamicChart: () =>
+        Promise.resolve({ mark: 'point', encoding: { x: { expr: 'datum.mrr' } } }),
+    });
+
+    await expect(
+      editArtifactVisualization(
+        { repository: fake.repository, llm },
+        {
+          userId: 'user-1',
+          artifactId: 'dynamic-1',
+          edit: { kind: 'message', message: 'usa una expresión' },
+        },
+      ),
+    ).rejects.toThrow(/expr/u);
+
+    expect(fake.artifactStore.get('dynamic-1')?.record.chartSpec).toEqual(oldSpec);
   });
 });

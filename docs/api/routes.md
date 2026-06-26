@@ -16,11 +16,19 @@
 `/api/auth/login` setea la cookie `mirador_session` con `HttpOnly` y
 `SameSite=Lax`. Las rutas de chat requieren una sesion CEO valida.
 
-`/api/chat/messages` acepta `{ message, conversation_id?, intent_mode? }` y
+`/api/chat/messages` acepta
+`{ message, conversation_id?, intent_mode?, dynamic_charts_enabled? }` y
 devuelve narrativa, `data`, `artifacts`, `chart`, `warnings`,
 `suggested_questions`, `quick_actions`, `metadata` y `trace_id`. El `intent_mode`
 (`responder`, `analizar`, `reporte_visual`, `plan`) moldea la salida sin descartar
 lo pedido en el prompt.
+
+`dynamic_charts_enabled` es booleano, opcional y `false` por defecto. Solo afecta
+la creación de visualizaciones incompatibles con el camino simple
+line/bar/stacked-bar/area/pie. Cuando está apagado, o cuando la generación segura
+falla, la respuesta conserva las filas como `TABLE` y agrega una advertencia.
+`DYNAMIC_CHART` transporta una especificación Vega-Lite v6 validada con
+`data.values` inline. Ver [ADR 0013](../adrs/0013-extend-chat-artifacts-with-governed-vega-lite.md).
 
 `metadata.answer_source` indica el origen de la respuesta: `semantic` (camino
 determinista del catalogo), `fallback_sql` (SQL exploratorio gobernado, viene con
@@ -75,6 +83,8 @@ semantica, SQL Safety, read-only, fallback, conocimiento, auditoria). Body:
 `{ question: string, intent_mode?: ... }` (sin `conversation_id`: las llamadas son
 one-shot, sin estado). No persiste `Conversation`/`ChatMessage`; audita una fila con
 `client_type='MCP'` y `path='/internal/core/ask'`.
+
+La ruta interna no acepta `dynamic_charts_enabled` y nunca devuelve Vega-Lite.
 
 A diferencia del chat web, NO devuelve el `ChatResponse` (acoplado al frontend:
 `artifacts` con payload de render, `chart_spec`, `quick_actions`, `intent_mode`).

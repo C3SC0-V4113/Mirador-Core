@@ -9,6 +9,7 @@ export const chatMessageBodySchema = z.object({
   message: z.string().min(1),
   conversation_id: z.uuid().optional(),
   intent_mode: intentModeSchema.optional(),
+  dynamic_charts_enabled: z.boolean().default(false),
 });
 
 export type ChatMessageBody = z.infer<typeof chatMessageBodySchema>;
@@ -28,8 +29,9 @@ export const VISUALIZATION_CHART_TYPES = [
 // - lenguaje natural (`message`), interpretado por el LLM;
 // - estructurado (`chart_spec`), aplicado directamente sin LLM (botones de la UI).
 export const chartEditBodySchema = z.union([
-  z.object({ message: z.string().min(1) }),
+  z.object({ message: z.string().min(1), dynamic_charts_enabled: z.boolean().default(false) }),
   z.object({
+    dynamic_charts_enabled: z.boolean().default(false),
     chart_spec: z.object({
       type: z.enum(VISUALIZATION_CHART_TYPES),
       x: z.string().nullable().optional(),

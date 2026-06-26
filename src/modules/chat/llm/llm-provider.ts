@@ -23,6 +23,7 @@ export type NarrativeInput = {
   rows: unknown[];
   context: string;
   intentMode?: IntentModeInput;
+  fieldLabels: Record<string, string>;
 };
 
 export type PlanInput = {
@@ -30,6 +31,7 @@ export type PlanInput = {
   metricLabel: string;
   rows: unknown[];
   context: string;
+  fieldLabels: Record<string, string>;
 };
 
 export type PlanAction = { title: string; detail: string };
@@ -42,9 +44,15 @@ export type FollowUpInput = {
   // Catalogo completo: el modelo necesita saber QUE puede responder cada metrica
   // (dimensiones, filtros) para no proponer preguntas multi-paso o no resolubles.
   catalogContext: MetricCatalogContext;
+  fieldLabels: Record<string, string>;
 };
 
 export type ChartSpec = { type: string; x: string | null; y: string };
+
+export type VisualIntent =
+  | { kind: 'default' }
+  | { kind: 'simple' }
+  | { kind: 'dynamic'; instruction: string };
 
 export type ChartEditInput = {
   message: string;
@@ -78,6 +86,7 @@ export type CombinedAnswerInput = {
   rows: unknown[];
   context: string;
   chunks: KnowledgeChunkRef[];
+  fieldLabels: Record<string, string>;
 };
 
 export type ChatHistoryMessage = { role: 'USER' | 'ASSISTANT'; content: string };
@@ -86,7 +95,12 @@ export type ChatHistoryMessage = { role: 'USER' | 'ASSISTANT'; content: string }
 // la pregunta mapea a una metrica, una aclaracion especifica cuando no, una
 // respuesta conversacional para saludos, o `knowledge` para preguntas documentales.
 export type MetricPlan =
-  | { kind: 'metric'; query: Record<string, unknown>; knowledgeLookup: string | null }
+  | {
+      kind: 'metric';
+      query: Record<string, unknown>;
+      knowledgeLookup: string | null;
+      visualIntent?: VisualIntent;
+    }
   | { kind: 'clarify'; message: string }
   | { kind: 'conversational'; message: string }
   | { kind: 'knowledge' };
@@ -106,6 +120,20 @@ export type LlmProvider = {
   generateFallbackSql(input: FallbackSqlInput): Promise<{ sql: string } | null>;
   composeKnowledgeAnswer(input: KnowledgeAnswerInput): Promise<string>;
   composeCombinedAnswer(input: CombinedAnswerInput): Promise<string>;
+  generateDynamicChart(input: DynamicChartInput): Promise<unknown>;
+  editDynamicChart(input: DynamicChartEditInput): Promise<unknown>;
+};
+
+export type DynamicChartInput = {
+  question: string;
+  instruction: string;
+  rows: unknown[];
+  fieldLabels: Record<string, string>;
+};
+
+export type DynamicChartEditInput = DynamicChartInput & {
+  currentSpec: unknown;
+  editInstruction: string;
 };
 
 export function createLlmProvider(): LlmProvider {

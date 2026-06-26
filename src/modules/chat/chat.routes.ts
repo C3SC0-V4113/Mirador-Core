@@ -45,6 +45,7 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
         message: body.message,
         conversationId: body.conversation_id,
         intentMode: body.intent_mode,
+        dynamicChartsEnabled: body.dynamic_charts_enabled,
         traceId: request.traceId,
         clientType: 'WEB',
         path: '/api/chat/messages',
@@ -137,6 +138,7 @@ export const chatRoutes: FastifyPluginCallback = (app, _options, done) => {
           userId: request.currentUser.id,
           artifactId: params.artifactId,
           edit,
+          dynamicChartsEnabled: body.dynamic_charts_enabled,
         },
       );
 

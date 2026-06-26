@@ -21,6 +21,7 @@ const metricDefinitionSchema = z.object({
 const metricCatalogSchema = z.object({
   version: z.string().min(1),
   role: z.literal('CEO'),
+  field_labels: z.record(z.string(), z.string().min(1)),
   metrics: z.array(metricDefinitionSchema).min(1),
 });
 
@@ -29,6 +30,7 @@ const metricCatalogSchema = z.object({
 // que las columnas que cada metrica expone.
 const businessSchemaSchema = z.object({
   version: z.string().min(1),
+  field_labels: z.record(z.string(), z.string().min(1)),
   views: z
     .array(
       z.object({
@@ -127,6 +129,7 @@ export function buildMetricCatalogContext() {
   return {
     version: catalog.version,
     role: catalog.role,
+    field_labels: catalog.field_labels,
     metrics: catalog.metrics.map((metric) => ({
       name: metric.name,
       label: metric.label,
@@ -160,9 +163,28 @@ export function buildBusinessSchemaContext() {
 
   return {
     version: schema.version,
+    field_labels: schema.field_labels,
     views: schema.views.map((view) => ({
       name: view.name,
       columns: [...view.columns].sort(),
     })),
   };
+}
+
+export function buildFieldLabels(columns: string[]): Record<string, string> {
+  const labels = loadMetricCatalog().field_labels;
+
+  return Object.fromEntries(
+    columns.map((column) => [column, labels[column] ?? humanizeFieldName(column)]),
+  );
+}
+
+export function humanizeFieldName(field: string): string {
+  const normalized = field.replaceAll('_', ' ').trim();
+
+  if (normalized === '') {
+    return field;
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }

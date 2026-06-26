@@ -24,3 +24,4 @@ Las decisiones de arquitectura de `mirador-core` viven en esta carpeta.
 - [ADR 0010: Adopt Multi-Intent Execution Plan (Combining Metric And Knowledge)](0010-adopt-multi-intent-execution-plan-combining-metric-and-knowledge.md)
 - [ADR 0011: Expose The Governed Core Pipeline Via An Internal Service-To-Service API](0011-expose-governed-core-pipeline-via-internal-service-to-service-api.md)
 - [ADR 0012: Adopt Railway + Cloudflare Deployment Topology For The MVP](0012-adopt-railway-cloudflare-deployment-topology.md)
+- [ADR 0013: Extend Chat Artifacts With Governed Vega-Lite](0013-extend-chat-artifacts-with-governed-vega-lite.md)

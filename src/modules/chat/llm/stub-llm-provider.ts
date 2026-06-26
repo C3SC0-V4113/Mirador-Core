@@ -18,6 +18,9 @@ const VISUAL_CHANGE_PATTERN =
 const KNOWLEDGE_PATTERN =
   /pol[ií]tica|visi[oó]n|misi[oó]n|valores|proceso|producto|onboarding|documento|manual/iu;
 
+const DYNAMIC_VISUAL_PATTERN =
+  /heatmap|mapa de calor|dispersion|dispersi[oó]n|scatter|histogram|histograma|distribution|distribuci[oó]n|faceta|facet|combinad[ao]|doble eje|capas?|layer/iu;
+
 // Proveedor determinista sin red. Mapea la pregunta a una metrica del catalogo por
 // coincidencia de nombre, etiqueta o sinonimo. Se usa en tests y como fallback
 // cuando no hay proveedor LLM configurado. Ignora el contexto temporal y el historial.
@@ -36,7 +39,14 @@ export function createStubLlmProvider(): LlmProvider {
       if (match !== undefined) {
         // Combo determinista: si ademas hay una pista documental, adjunta el lookup.
         const knowledgeLookup = KNOWLEDGE_PATTERN.test(normalized) ? prompt : null;
-        return Promise.resolve({ kind: 'metric', query: { metric: match }, knowledgeLookup });
+        return Promise.resolve({
+          kind: 'metric',
+          query: { metric: match },
+          knowledgeLookup,
+          visualIntent: DYNAMIC_VISUAL_PATTERN.test(normalized)
+            ? { kind: 'dynamic', instruction: prompt }
+            : { kind: 'default' },
+        });
       }
 
       if (KNOWLEDGE_PATTERN.test(normalized)) {
@@ -151,6 +161,70 @@ export function createStubLlmProvider(): LlmProvider {
           ? 'Sin soporte documental.'
           : `${first.content} (${first.title}, ${first.locator})`;
       return Promise.resolve(`${metricPart} ${docPart}`);
+    },
+
+    generateDynamicChart(input) {
+      return Promise.resolve(
+        buildStubDynamicSpec(input.rows, input.fieldLabels, input.instruction),
+      );
+    },
+
+    editDynamicChart(input) {
+      if (/url|imagen|javascript|expresion|expression/iu.test(input.editInstruction)) {
+        return Promise.resolve({
+          ...(typeof input.currentSpec === 'object' && input.currentSpec !== null
+            ? input.currentSpec
+            : {}),
+          data: { url: 'https://example.invalid/data.json' },
+        });
+      }
+
+      return Promise.resolve(
+        buildStubDynamicSpec(input.rows, input.fieldLabels, input.editInstruction),
+      );
+    },
+  };
+}
+
+function buildStubDynamicSpec(
+  rows: unknown[],
+  labels: Record<string, string>,
+  instruction: string,
+): Record<string, unknown> {
+  const first = rows[0];
+  const columns = typeof first === 'object' && first !== null ? Object.keys(first) : [];
+  const x = columns[0] ?? '';
+  const y = columns[1] ?? x;
+
+  if (/heatmap|mapa de calor/iu.test(instruction)) {
+    return {
+      mark: 'rect',
+      encoding: {
+        x: { field: x, type: 'ordinal', title: labels[x] ?? x },
+        y: { field: y, type: 'ordinal', title: labels[y] ?? y },
+        color: { field: y, type: 'quantitative', title: labels[y] ?? y },
+        tooltip: columns.map((field) => ({ field, title: labels[field] ?? field })),
+      },
+    };
+  }
+
+  if (/histogram|histograma|distribution|distribuci[oó]n/iu.test(instruction)) {
+    return {
+      mark: 'bar',
+      encoding: {
+        x: { field: y, type: 'quantitative', bin: true, title: labels[y] ?? y },
+        y: { aggregate: 'count', type: 'quantitative', title: 'Count' },
+        tooltip: columns.map((field) => ({ field, title: labels[field] ?? field })),
+      },
+    };
+  }
+
+  return {
+    mark: 'point',
+    encoding: {
+      x: { field: x, type: 'nominal', title: labels[x] ?? x },
+      y: { field: y, type: 'quantitative', title: labels[y] ?? y },
+      tooltip: columns.map((field) => ({ field, title: labels[field] ?? field })),
     },
   };
 }

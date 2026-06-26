@@ -12,6 +12,7 @@ import type { AuditLogInput, AuditRepository } from '../audit/audit.repositories
 import type { MetricDefinition } from '../schema-catalog/metric-catalog.js';
 import {
   buildBusinessSchemaContext,
+  buildFieldLabels,
   buildMetricCatalogContext,
   validateMetricQuery,
 } from '../schema-catalog/metric-catalog.js';
@@ -27,6 +28,7 @@ import {
   retrieveKnowledge,
 } from '../knowledge/knowledge.service.js';
 import type { ArtifactRecord, ChatRepository } from './chat.repositories.js';
+import { buildValidatedDynamicChartSpec } from './dynamic-chart.js';
 import {
   SUGGESTED_QUESTIONS,
   VISUALIZATION_CHART_TYPES,
@@ -39,6 +41,7 @@ import type {
   LlmProvider,
   MetricCatalogContext,
   TemporalContext,
+  VisualIntent,
 } from './llm/llm-provider.js';
 
 export type RunReadonlyQuery = (sql: string) => Promise<ReadonlyQueryResult>;
@@ -148,6 +151,7 @@ export type HandleChatInput = {
   traceId: string;
   clientType?: ClientType;
   path?: string;
+  dynamicChartsEnabled?: boolean;
 };
 
 export type ChatArtifactView = {
@@ -228,6 +232,7 @@ async function runChatPipeline(
   let plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition };
   // Sub-pregunta documental cuando el prompt combina metrica + conocimiento.
   let knowledgeLookup: string | null = null;
+  let visualIntent: VisualIntent | undefined;
 
   try {
     const metricPlan = await deps.llm.planMetricQuery(
@@ -271,18 +276,15 @@ async function runChatPipeline(
         }
       }
 
-      audit.missingMetricOrDimension = metricPlan.message;
-      return await respondClarification(
-        deps,
-        conversationId,
-        input,
-        intentMode,
-        metricPlan.message,
-      );
+      const clarification =
+        metricClarificationForAdvancedVisual(input.message) ?? metricPlan.message;
+      audit.missingMetricOrDimension = clarification;
+      return await respondClarification(deps, conversationId, input, intentMode, clarification);
     }
 
     plan = validateMetricQuery(metricPlan.query);
     knowledgeLookup = metricPlan.knowledgeLookup;
+    visualIntent = metricPlan.visualIntent;
   } catch {
     // Errores del proveedor LLM o de validacion: aclaracion, no 500.
     audit.fallbackReason = 'planner_or_validation_error';
@@ -309,6 +311,7 @@ async function runChatPipeline(
       knowledgePromise,
     ]);
     const jsonRows = JSON.parse(JSON.stringify(queryResult.rows)) as Prisma.InputJsonValue;
+    const fieldLabels = buildFieldLabels(extractColumns(queryResult.rows));
     const combined = retrieval?.hasEvidence === true;
 
     audit.metric = plan.metric.name;
@@ -322,12 +325,64 @@ async function runChatPipeline(
     audit.executionPlan = { metric: plan.metric.name, knowledge_lookup: knowledgeLookup };
 
     let artifactType = pickArtifactType(plan.metric, queryResult.rows, input.intentMode);
-    let chartSpec = buildChartSpec(plan.metric, artifactType, plan.query);
+    let chartSpec = buildChartSpec(plan.metric, artifactType, plan.query, fieldLabels);
+    const warnings: string[] = [];
+    const dynamicVisualInstruction = resolveDynamicVisualInstruction(
+      input.message,
+      visualIntent,
+      queryResult.rows,
+    );
+    if (
+      dynamicVisualInstruction !== null &&
+      artifactType !== 'ACTION_PLAN' &&
+      !supportsAdvancedVisualDataShape(dynamicVisualInstruction, queryResult.rows)
+    ) {
+      artifactType = 'TABLE';
+      chartSpec = null;
+      warnings.push(advancedVisualDataShapeWarning(dynamicVisualInstruction));
+    } else if (dynamicVisualInstruction !== null && artifactType !== 'ACTION_PLAN') {
+      if (input.dynamicChartsEnabled !== true) {
+        artifactType = 'TABLE';
+        chartSpec = null;
+        warnings.push(
+          'La visualización solicitada requiere gráficas dinámicas. Actívalas para generarla; los datos se muestran como tabla.',
+        );
+      } else {
+        try {
+          const candidate = await deps.llm.generateDynamicChart({
+            question: input.message,
+            instruction: dynamicVisualInstruction,
+            rows: queryResult.rows,
+            fieldLabels,
+          });
+          chartSpec = buildValidatedDynamicChartSpec(
+            candidate,
+            queryResult.rows,
+          ) as Prisma.InputJsonValue;
+          artifactType = 'DYNAMIC_CHART';
+        } catch (error) {
+          deps.logger?.warn(
+            {
+              trace_id: input.traceId,
+              err: error instanceof Error ? error.message : String(error),
+            },
+            'analytics.dynamic_chart_generation_failed',
+          );
+          artifactType = 'TABLE';
+          chartSpec = null;
+          warnings.push(dynamicChartFailureWarning(error));
+        }
+      }
+    }
 
     // Si el grafico no es renderizable (sus columnas no estan en los datos), no
     // emitimos un grafico vacio: degradamos un CHART a TABLA (el CEO ve los datos)
     // y, en REPORT, lo dejamos sin grafico (conserva resumen + tabla).
-    if (chartSpec !== null && !chartColumnsRenderable(chartSpec, queryResult.rows)) {
+    if (
+      artifactType !== 'DYNAMIC_CHART' &&
+      chartSpec !== null &&
+      !chartColumnsRenderable(chartSpec, queryResult.rows)
+    ) {
       chartSpec = null;
       if (artifactType === 'CHART') {
         artifactType = 'TABLE';
@@ -345,10 +400,10 @@ async function runChatPipeline(
         rows: queryResult.rows,
         context: describeQueryContext(plan.query),
         catalogContext,
+        fieldLabels,
       }),
     ]);
     const citations = retrieval?.citations ?? [];
-    const warnings: string[] = [];
     if (queryResult.rows.length === 0) {
       warnings.push('La consulta no devolvió filas.');
     }
@@ -359,13 +414,22 @@ async function runChatPipeline(
     const freshness = new Date().toISOString();
 
     // El modo solo cambia COMO se presenta la metrica resuelta, no la metrica.
-    let payload: Prisma.InputJsonValue = { metric: plan.metric.name, rows: jsonRows };
+    let payload: Prisma.InputJsonValue = {
+      metric: plan.metric.name,
+      rows: jsonRows,
+      labels: fieldLabels,
+    };
 
     if (artifactType === 'ACTION_PLAN') {
       const actions = await composePlanSafe(deps, input, plan, queryResult.rows);
-      payload = { metric: plan.metric.name, actions, rows: jsonRows };
+      payload = { metric: plan.metric.name, actions, rows: jsonRows, labels: fieldLabels };
     } else if (artifactType === 'REPORT') {
-      payload = { metric: plan.metric.name, summary: narrative, rows: jsonRows };
+      payload = {
+        metric: plan.metric.name,
+        summary: narrative,
+        rows: jsonRows,
+        labels: fieldLabels,
+      };
     }
 
     const assistantMessage = await deps.repository.insertMessage({
@@ -623,6 +687,7 @@ async function composeNarrativeSafe(
   plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition },
   rows: unknown[],
 ): Promise<string> {
+  const fieldLabels = buildFieldLabels(extractColumns(rows));
   try {
     return await deps.llm.composeNarrative({
       question: input.message,
@@ -631,6 +696,7 @@ async function composeNarrativeSafe(
       rows,
       context: describeQueryContext(plan.query),
       intentMode: input.intentMode,
+      fieldLabels,
     });
   } catch {
     // Si la narrativa LLM falla, no perdemos los datos ya calculados.
@@ -645,6 +711,7 @@ async function composeCombinedSafe(
   rows: unknown[],
   chunks: KnowledgeChunkRef[],
 ): Promise<string> {
+  const fieldLabels = buildFieldLabels(extractColumns(rows));
   try {
     return await deps.llm.composeCombinedAnswer({
       question: input.message,
@@ -652,6 +719,7 @@ async function composeCombinedSafe(
       rows,
       context: describeQueryContext(plan.query),
       chunks,
+      fieldLabels,
     });
   } catch {
     return `${plan.metric.label}: ${String(rows.length)} registro(s) recuperados.`;
@@ -664,12 +732,14 @@ async function composePlanSafe(
   plan: { query: ReturnType<typeof validateMetricQuery>['query']; metric: MetricDefinition },
   rows: unknown[],
 ): Promise<{ title: string; detail: string }[]> {
+  const fieldLabels = buildFieldLabels(extractColumns(rows));
   try {
     return await deps.llm.composePlan({
       question: input.message,
       metricLabel: plan.metric.label,
       rows,
       context: describeQueryContext(plan.query),
+      fieldLabels,
     });
   } catch {
     return [];
@@ -760,7 +830,49 @@ async function tryFallbackSql(
   );
 
   const jsonRows = JSON.parse(JSON.stringify(result.rows)) as Prisma.InputJsonValue;
-  const artifactType: ArtifactType = result.rows.length <= 1 ? 'KPI' : 'TABLE';
+  const fieldLabels = buildFieldLabels(extractColumns(result.rows));
+  let artifactType: ArtifactType = result.rows.length <= 1 ? 'KPI' : 'TABLE';
+  let chartSpec: Prisma.InputJsonValue | null = null;
+  const warnings = [FALLBACK_WARNING];
+  const dynamicVisualInstruction = resolveDynamicVisualInstruction(
+    input.message,
+    undefined,
+    result.rows,
+  );
+
+  if (dynamicVisualInstruction !== null && result.rows.length > 0) {
+    if (input.dynamicChartsEnabled !== true) {
+      warnings.push(
+        'La visualización solicitada requiere gráficas dinámicas. Actívalas para generarla; los datos se muestran como tabla.',
+      );
+    } else if (!supportsAdvancedVisualDataShape(dynamicVisualInstruction, result.rows)) {
+      warnings.push(advancedVisualDataShapeWarning(dynamicVisualInstruction));
+    } else {
+      try {
+        const candidateSpec = await deps.llm.generateDynamicChart({
+          question: input.message,
+          instruction: dynamicVisualInstruction,
+          rows: result.rows,
+          fieldLabels,
+        });
+        chartSpec = buildValidatedDynamicChartSpec(
+          candidateSpec,
+          result.rows,
+        ) as Prisma.InputJsonValue;
+        artifactType = 'DYNAMIC_CHART';
+      } catch (error) {
+        deps.logger?.warn(
+          {
+            trace_id: input.traceId,
+            err: error instanceof Error ? error.message : String(error),
+          },
+          'analytics.fallback_dynamic_chart_generation_failed',
+        );
+        warnings.push(dynamicChartFailureWarning(error));
+      }
+    }
+  }
+
   const [narrative, suggestedQuestions] = await Promise.all([
     composeFallbackNarrative(deps, input, result.rows),
     suggestFollowUpsSafe(deps, {
@@ -769,10 +881,14 @@ async function tryFallbackSql(
       rows: result.rows,
       context: '',
       catalogContext,
+      fieldLabels,
     }),
   ]);
-  const warnings = [FALLBACK_WARNING];
-  const payload: Prisma.InputJsonValue = { source: 'fallback_sql', rows: jsonRows };
+  const payload: Prisma.InputJsonValue = {
+    source: 'fallback_sql',
+    rows: jsonRows,
+    labels: fieldLabels,
+  };
 
   const assistantMessage = await deps.repository.insertMessage({
     conversationId,
@@ -792,7 +908,7 @@ async function tryFallbackSql(
     validatedSql: result.validatedSql,
     summary: narrative,
     payload,
-    chartSpec: null,
+    chartSpec,
     freshness: new Date().toISOString(),
     warnings,
     traceId: input.traceId,
@@ -804,9 +920,15 @@ async function tryFallbackSql(
     message: narrative,
     data: result.rows,
     artifacts: [
-      { id: artifactRow.id, type: artifactType, summary: narrative, payload, chart_spec: null },
+      {
+        id: artifactRow.id,
+        type: artifactType,
+        summary: narrative,
+        payload,
+        chart_spec: chartSpec,
+      },
     ],
-    chart: null,
+    chart: chartSpec,
     warnings,
     suggested_questions: suggestedQuestions,
     quick_actions: buildQuickActions(artifactType),
@@ -909,6 +1031,7 @@ async function composeFallbackNarrative(
       rows,
       context: '',
       intentMode: input.intentMode,
+      fieldLabels: buildFieldLabels(extractColumns(rows)),
     });
   } catch {
     return `Consulta exploratoria: ${String(rows.length)} registro(s) recuperados.`;
@@ -961,6 +1084,7 @@ function buildChartSpec(
   metric: MetricDefinition,
   artifactType: ArtifactType,
   query: ReturnType<typeof validateMetricQuery>['query'],
+  fieldLabels: Record<string, string>,
 ): Prisma.InputJsonValue | null {
   // CHART y REPORT llevan visualizacion; el resto no.
   if (artifactType !== 'CHART' && artifactType !== 'REPORT') {
@@ -978,6 +1102,7 @@ function buildChartSpec(
     type: metric.default_chart,
     x,
     y: metric.measure,
+    labels: fieldLabels,
   };
 }
 
@@ -1005,12 +1130,193 @@ function chartColumnsRenderable(chartSpec: Prisma.InputJsonValue | null, rows: u
   );
 }
 
+function resolveDynamicVisualInstruction(
+  question: string,
+  visualIntent: VisualIntent | undefined,
+  rows: unknown[],
+): string | null {
+  if (visualIntent?.kind === 'dynamic') {
+    if (
+      /histogram|histograma|distribution|distribuci[oó]n/iu.test(visualIntent.instruction) &&
+      !supportsRealNumericDistribution(question.toLowerCase(), rows)
+    ) {
+      return null;
+    }
+
+    return visualIntent.instruction;
+  }
+
+  if (visualIntent?.kind === 'simple') {
+    return null;
+  }
+
+  const normalized = question.toLowerCase();
+  const asksForAdvancedRenderer =
+    /heatmap|mapa de calor|scatter|dispersi[oó]n|histogram|histograma|distribution|distribuci[oó]n|facetas?|facets?|capas?|layers?|small multiples|composici[oó]n|composition|combinad[ao]|combined|apilad[ao] normalizad[ao]|normalized stacking|tooltips? ricos?|leyenda|color adicional/iu.test(
+      normalized,
+    );
+
+  if (!asksForAdvancedRenderer) {
+    return null;
+  }
+
+  if (
+    /histogram|histograma|distribution|distribuci[oó]n/iu.test(normalized) &&
+    !supportsRealNumericDistribution(normalized, rows)
+  ) {
+    return null;
+  }
+
+  return question;
+}
+
+function supportsRealNumericDistribution(question: string, rows: unknown[]): boolean {
+  if (
+    /risk|riesgo|estado|status|prioridad|priority|etapa|stage|segmento|segment|industria|industry/iu.test(
+      question,
+    )
+  ) {
+    return false;
+  }
+
+  return rows.some((row) => {
+    if (typeof row !== 'object' || row === null) {
+      return false;
+    }
+
+    return Object.values(row).some((value) => isNumericValue(value));
+  });
+}
+
+type DataShape = { dimensions: string[]; measures: string[] };
+
+function inferDataShape(rows: unknown[]): DataShape {
+  const columnValues = new Map<string, unknown[]>();
+
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+      continue;
+    }
+
+    for (const [column, value] of Object.entries(row)) {
+      if (value === null || value === undefined || value === '') {
+        continue;
+      }
+
+      const values = columnValues.get(column) ?? [];
+      values.push(value);
+      columnValues.set(column, values);
+    }
+  }
+
+  const dimensions: string[] = [];
+  const measures: string[] = [];
+
+  for (const [column, values] of columnValues) {
+    if (values.length === 0) {
+      continue;
+    }
+
+    const normalized = column.toLowerCase();
+    const dimensionByName =
+      /month|mes|date|period|fecha|cliente|customer|segment|category|categoria|id|code|codigo|name|nombre/iu.test(
+        normalized,
+      );
+    const measureByName =
+      /revenue|ingresos?|mrr|count|cantidad|amount|monto|score|total|sum|hours|horas/iu.test(
+        normalized,
+      );
+    const allNumeric = values.every((value) => isNumericValue(value));
+
+    if (dimensionByName || (!measureByName && !allNumeric)) {
+      dimensions.push(column);
+    } else if (measureByName || allNumeric) {
+      measures.push(column);
+    }
+  }
+
+  return { dimensions, measures };
+}
+
+function supportsAdvancedVisualDataShape(instruction: string, rows: unknown[]): boolean {
+  const shape = inferDataShape(rows);
+
+  if (/heatmap|mapa de calor/iu.test(instruction)) {
+    return shape.dimensions.length >= 2 && shape.measures.length >= 1;
+  }
+
+  if (/histogram|histograma|distribution|distribuci[oó]n/iu.test(instruction)) {
+    return supportsRealNumericDistribution(instruction.toLowerCase(), rows);
+  }
+
+  if (
+    /facetas?|facets?|capas?|layers?|small multiples|composici[oó]n|composition|apilad[ao] normalizad[ao]|normalized stacking/iu.test(
+      instruction,
+    )
+  ) {
+    return shape.dimensions.length >= 2 && shape.measures.length >= 1;
+  }
+
+  return shape.measures.length >= 1;
+}
+
+function advancedVisualDataShapeWarning(instruction: string): string {
+  if (/heatmap|mapa de calor/iu.test(instruction)) {
+    return 'No pude generar el mapa de calor porque los datos disponibles necesitan al menos dos dimensiones y una medida. Conservé los datos como tabla.';
+  }
+
+  if (/histogram|histograma|distribution|distribuci[oó]n/iu.test(instruction)) {
+    return 'No pude generar el histograma porque los datos disponibles necesitan una medida numérica real. Conservé los datos como tabla.';
+  }
+
+  return 'No pude generar esa visualización avanzada porque los datos disponibles necesitan suficientes dimensiones y una medida. Conservé los datos como tabla.';
+}
+
+function metricClarificationForAdvancedVisual(question: string): string | null {
+  if (
+    !/facetas?|facets?|capas?|layers?|small multiples|composici[oó]n|composition|apilad[ao] normalizad[ao]|normalized stacking|heatmap|mapa de calor|histograma|histogram/iu.test(
+      question,
+    )
+  ) {
+    return null;
+  }
+
+  if (/ingresos?|revenue|mrr|clientes?|customers?|cantidad|count|monto|amount/iu.test(question)) {
+    return null;
+  }
+
+  return '¿Qué medida querés visualizar o apilar: ingresos, MRR, clientes, cantidad u otra métrica?';
+}
+
+function isNumericValue(value: unknown): boolean {
+  return (
+    typeof value === 'number' ||
+    (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)))
+  );
+}
+
+function dynamicChartFailureWarning(error: unknown): string {
+  if (
+    error instanceof AppError &&
+    /require at least|support at most|row|columna|field|filas?/iu.test(error.message)
+  ) {
+    return 'No pude generar la gráfica dinámica porque los datos disponibles no alcanzan para esa visualización. Conservé los datos como tabla.';
+  }
+
+  return 'No pude generar una gráfica dinámica segura. Conservé los datos como tabla.';
+}
+
 function derivePeriod(query: ReturnType<typeof validateMetricQuery>['query']): string | null {
   if (query.time_range === undefined) {
     return null;
   }
 
   return `${query.time_range.from}..${query.time_range.to}`;
+}
+
+function extractColumns(rows: unknown[]): string[] {
+  const first = rows[0];
+  return typeof first === 'object' && first !== null ? Object.keys(first) : [];
 }
 
 export type ConversationDetailMessageView = {
@@ -1097,13 +1403,20 @@ export type EditVisualizationDeps = {
 export type EditVisualizationInput = {
   userId: string;
   artifactId: string;
+  dynamicChartsEnabled?: boolean;
   // Lenguaje natural (interpretado por el LLM) o cambio estructurado directo.
   edit: { kind: 'message'; message: string } | { kind: 'structured'; chartSpec: ChartSpec };
 };
 
 export type VisualizationResponse =
   | { requires_main_chat: true; reason: string; artifact_id: string }
-  | { requires_main_chat: false; artifact_id: string; chart_spec: Prisma.InputJsonValue };
+  | {
+      requires_main_chat: false;
+      artifact_id: string;
+      artifact_type: ArtifactType;
+      chart_spec: Prisma.InputJsonValue | null;
+      note?: string;
+    };
 
 // Mini-chat de gráficas: edita SOLO la visualización (chart_spec) de un artefacto
 // ya generado, sin re-consultar. El modo estructurado (botones) aplica el cambio
@@ -1119,7 +1432,101 @@ export async function editArtifactVisualization(
     throw new AppError('Artifact not found.', 404, 'CHART_ARTIFACT_NOT_FOUND');
   }
 
+  if (!['CHART', 'REPORT', 'DYNAMIC_CHART'].includes(artifact.artifactType)) {
+    throw new AppError(
+      'Artifact does not support visualization editing.',
+      422,
+      'ARTIFACT_NOT_VISUAL',
+    );
+  }
+
+  if (artifact.artifactType === 'DYNAMIC_CHART') {
+    if (input.edit.kind !== 'message') {
+      throw new AppError(
+        'Dynamic charts are edited with a natural-language instruction.',
+        422,
+        'DYNAMIC_CHART_EDIT_REQUIRES_MESSAGE',
+      );
+    }
+
+    const rows = extractArtifactRows(artifact);
+    const fieldLabels = extractArtifactLabels(artifact, rows);
+    const candidate = await deps.llm.editDynamicChart({
+      question: 'Editar grafica dinamica existente',
+      instruction: input.edit.message,
+      editInstruction: input.edit.message,
+      rows,
+      fieldLabels,
+      currentSpec: artifact.chartSpec,
+    });
+    const chartSpec = buildValidatedDynamicChartSpec(candidate, rows) as Prisma.InputJsonValue;
+
+    await deps.repository.updateArtifactChartSpec(artifact.id, chartSpec);
+
+    return {
+      requires_main_chat: false,
+      artifact_id: artifact.id,
+      artifact_type: 'DYNAMIC_CHART',
+      chart_spec: chartSpec,
+    };
+  }
+
   const availableColumns = extractArtifactColumns(artifact);
+
+  if (input.edit.kind === 'message') {
+    const artifactRows = extractArtifactRows(artifact);
+    const dynamicVisualInstruction = resolveDynamicVisualInstruction(
+      input.edit.message,
+      undefined,
+      artifactRows,
+    );
+
+    if (dynamicVisualInstruction !== null) {
+      if (input.dynamicChartsEnabled !== true) {
+        return {
+          requires_main_chat: false,
+          artifact_id: artifact.id,
+          artifact_type: artifact.artifactType,
+          chart_spec: artifact.chartSpec as Prisma.InputJsonValue,
+          note: 'Activa graficas dinamicas para convertir esta visualizacion avanzada.',
+        };
+      }
+
+      if (!supportsAdvancedVisualDataShape(dynamicVisualInstruction, artifactRows)) {
+        return {
+          requires_main_chat: false,
+          artifact_id: artifact.id,
+          artifact_type: artifact.artifactType,
+          chart_spec: artifact.chartSpec as Prisma.InputJsonValue,
+          note: advancedVisualDataShapeWarning(dynamicVisualInstruction),
+        };
+      }
+
+      const artifactLabels = extractArtifactLabels(artifact, artifactRows);
+      const candidate = await deps.llm.generateDynamicChart({
+        question: input.edit.message,
+        instruction: dynamicVisualInstruction,
+        rows: artifactRows,
+        fieldLabels: artifactLabels,
+      });
+      const chartSpec = buildValidatedDynamicChartSpec(
+        candidate,
+        artifactRows,
+      ) as Prisma.InputJsonValue;
+
+      await deps.repository.updateArtifactVisualization(artifact.id, {
+        artifactType: 'DYNAMIC_CHART',
+        chartSpec,
+      });
+
+      return {
+        requires_main_chat: false,
+        artifact_id: artifact.id,
+        artifact_type: 'DYNAMIC_CHART',
+        chart_spec: chartSpec,
+      };
+    }
+  }
 
   let desiredSpec: ChartSpec;
 
@@ -1168,10 +1575,19 @@ export async function editArtifactVisualization(
 
   await deps.repository.updateArtifactChartSpec(artifact.id, chartSpec);
 
-  return { requires_main_chat: false, artifact_id: artifact.id, chart_spec: chartSpec };
+  return {
+    requires_main_chat: false,
+    artifact_id: artifact.id,
+    artifact_type: artifact.artifactType,
+    chart_spec: chartSpec,
+  };
 }
 
 function extractArtifactColumns(artifact: ArtifactRecord): string[] {
+  return extractColumns(extractArtifactRows(artifact));
+}
+
+function extractArtifactRows(artifact: ArtifactRecord): unknown[] {
   const payload = artifact.payload;
 
   if (typeof payload !== 'object' || payload === null || !('rows' in payload)) {
@@ -1179,16 +1595,22 @@ function extractArtifactColumns(artifact: ArtifactRecord): string[] {
   }
 
   const rows = (payload as { rows?: unknown }).rows;
+  return Array.isArray(rows) ? rows : [];
+}
 
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return [];
+function extractArtifactLabels(artifact: ArtifactRecord, rows: unknown[]): Record<string, string> {
+  const payload = artifact.payload;
+
+  if (typeof payload === 'object' && payload !== null && 'labels' in payload) {
+    const labels = (payload as { labels?: unknown }).labels;
+    if (typeof labels === 'object' && labels !== null && !Array.isArray(labels)) {
+      return Object.fromEntries(
+        Object.entries(labels).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string',
+        ),
+      );
+    }
   }
 
-  const firstRow: unknown = rows[0];
-
-  if (typeof firstRow !== 'object' || firstRow === null) {
-    return [];
-  }
-
-  return Object.keys(firstRow);
+  return buildFieldLabels(extractColumns(rows));
 }

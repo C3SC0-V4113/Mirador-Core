@@ -172,6 +172,8 @@ multi-paso (se responden con aclaracion).
       `freshness`, `warnings` y `trace_id`.
 - [x] Soportar artefactos `text`, `table`, `kpi`, `chart`, `report` y
       `action_plan`.
+- [x] Extender `chart` con `dynamic_chart` Vega-Lite gobernado, opt-in por request,
+      fallback a tabla y etiquetas semanticas legibles.
 - [x] Implementar mini chat contextual para editar `chart_spec` de graficas ya
       generadas.
 - [x] Evitar nueva query cuando la edicion solo cambie visualizacion; derivar al chat

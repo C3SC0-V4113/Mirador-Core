@@ -73,6 +73,7 @@ enum ArtifactType {
   TABLE
   KPI
   CHART
+  DYNAMIC_CHART
   REPORT
   ACTION_PLAN
 }

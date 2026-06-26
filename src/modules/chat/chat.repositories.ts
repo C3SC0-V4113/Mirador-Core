@@ -84,6 +84,10 @@ export type ChatRepository = {
   renameConversation(conversationId: string, userId: string, title: string): Promise<boolean>;
   getArtifactForUser(artifactId: string, userId: string): Promise<ArtifactRecord | null>;
   updateArtifactChartSpec(artifactId: string, chartSpec: Prisma.InputJsonValue): Promise<void>;
+  updateArtifactVisualization(
+    artifactId: string,
+    input: { artifactType: ArtifactType; chartSpec: Prisma.InputJsonValue | null },
+  ): Promise<void>;
 };
 
 // Repositorio sin estado para llamadas service-to-service (mirador-mcp via
@@ -107,6 +111,7 @@ export function createStatelessChatRepository(): ChatRepository {
     renameConversation: notSupported('renameConversation'),
     getArtifactForUser: notSupported('getArtifactForUser'),
     updateArtifactChartSpec: notSupported('updateArtifactChartSpec'),
+    updateArtifactVisualization: notSupported('updateArtifactVisualization'),
   };
 }
 
@@ -298,6 +303,16 @@ export function createChatRepository(prisma: PrismaClient): ChatRepository {
       await prisma.chatArtifact.update({
         where: { id: artifactId },
         data: { chartSpec },
+      });
+    },
+
+    async updateArtifactVisualization(artifactId, input) {
+      await prisma.chatArtifact.update({
+        where: { id: artifactId },
+        data: {
+          artifactType: input.artifactType,
+          chartSpec: input.chartSpec ?? Prisma.JsonNull,
+        },
       });
     },
   };
